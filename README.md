@@ -6,16 +6,14 @@ This repository contains the analysis code developed for the CaSDaR sub-project 
 
 ## About the project
 
-CaSDaR (Careers and Skills for Data-driven Research) is a UKRI-funded Network+ (Grant No. UKRI739). This repository holds the code for one CaSDaR-funded sub-project, based at the University of Cambridge:
+[CaSDaR](https://casdar.ac.uk/) (Careers and Skills for Data-driven Research) is a UKRI-funded Network+ (Grant No. UKRI739). This repository holds the code for one CaSDaR-funded sub-project, based at the University of Cambridge:
 
-- **Principal Applicant:** Dr Noam Tal-Perry, University of Cambridge
-- **Co-Applicants:** Ms Clair Castle, Dr Kim Clugston, Ms Becky Ioppolo, Dr Steven Wooding — all University of Cambridge
+- **Principal Applicant:** Noam Tal-Perry, University of Cambridge ([ORCID](https://orcid.org/0000-0003-2521-9546))
+- **Co-Applicants:** Clair Castle ([ORCID](https://orcid.org/0000-0002-6897-582X)), Kim Clugston, Becky Ioppolo ([ORCID](https://orcid.org/0000-0003-1301-7947)), Steven Wooding ([ORCID](https://orcid.org/0000-0002-8036-1054))— all University of Cambridge
 
 ## Acknowledgements
 
-This work was funded by the CaSDaR (Careers and Skills for Data-driven Research) Network+, UKRI-funded (Grant No. UKRI739). The CaSDaR Network+ is led by Principal Investigator Dr Samantha Pearman-Kanza, with Co-Investigators Professor James Baker, Professor Simon Coles, Professor Simon Hettrick, and Ms Isobel Stark, and Network+ Coordinator Dr Louise Saul.
-
-*(The "About the project" and "Acknowledgements" sections above are a draft credits list assembled from the project's funding records for this initial release — please review and amend before or shortly after publishing.)*
+This work was funded by the CaSDaR (Careers and Skills for Data-driven Research) Network+, UKRI-funded (Grant No. UKRI739). The CaSDaR Network+ is led by Principal Investigator Dr Samantha Pearman-Kanza ([ORCID](https://orcid.org/0000-0002-4831-9489)), with Co-Investigators Professor James Baker ([ORCID](https://orcid.org/0000-0002-2682-6922)), Professor Simon Coles, Professor Simon Hettrick, and Ms Isobel Stark, and Network+ Coordinator Dr Louise Saul ([ORCID](https://orcid.org/0009-0000-6422-0342)).
 
 ## What this repository contains
 
@@ -25,7 +23,8 @@ This repository is **code only**. It does not include:
 - any scored output (similarity scores, coverage summaries, threshold-analysis results), or
 - the master template of data-steward criteria itself (see [Master template](#master-template-data-deposit) below).
 
-All of this reflects a bias toward keeping the pipeline reproducible and inspectable while excluding anything derived from Cambridge's internal recruitment records. Every script's own header comment describes exactly what inputs it expects and what it does and doesn't touch — check the script before running it.
+The purpose of this repository is to promote transparency and reusability of this project. 
+Every script's own header comment describes exactly what inputs it expects and what it does and doesn't touch — check the script before running it. Each output is described within the script.
 
 ## Pipeline overview
 
@@ -34,7 +33,7 @@ The eleven scripts in this repository form two connected pipelines plus a small 
 **Main extraction → scoring → coverage pipeline**
 1. `extract_job_criteria.R` — extracts responsibilities/skills criteria from job-ad PDFs via the Claude API, groups reposted vacancies, and optionally enriches records with HR status data.
 2. `run_validation_batch.R` — runs `extract_job_criteria.R` against a separate, external validation corpus (job ads outside the main study corpus), fully isolated from the main pipeline's inputs/outputs.
-3. `similarity_scoring.R` — scores each vacancy's extracted text against a master template of data-steward criteria using local embeddings (via [Ollama](https://ollama.com), not the Claude API), at document/section/item granularity.
+3. `similarity_scoring.R` — scores each vacancy's extracted text against a master template of data-steward criteria using local embeddings (via [Ollama](https://ollama.com)), at document/section/item granularity.
 4. `analyze_item_coverage.R` — aggregates item-level match data across vacancies to show which master-template criteria are reliably matched in real job ads.
 5. `run_item_coverage_by_label.R` — wraps `analyze_item_coverage.R` to run it once per labelled group (e.g. confirmed data-steward roles vs. non-data-steward roles), deriving each group's vacancy list from a labelled sample.
 6. `triangulate_item_coverage.R` — joins multiple `analyze_item_coverage.R` outputs together to compare coverage across groups and estimate a per-item discrimination gap.
@@ -54,7 +53,7 @@ Each script can also be run standalone; see its own header comment for the exact
 
 - **R** (developed against a recent R release; no specific minimum version is enforced by the code)
 - R packages: `httr2`, `jsonlite`, `digest`, `yaml` (used across different scripts — each script's header lists exactly what it needs)
-- **[Ollama](https://ollama.com)**, running locally, with the `nomic-embed-text` model pulled (`ollama pull nomic-embed-text`) — used by `similarity_scoring.R` for local embedding, not the Claude API
+- **[Ollama](https://ollama.com)**, running locally, with the `nomic-embed-text` model pulled (`ollama pull nomic-embed-text`) — used by `similarity_scoring.R` for local embedding
 - An **Anthropic API key**, for `extract_job_criteria.R`'s PDF-to-text extraction step (set as an environment variable; see that script's header for the exact variable name and handling)
 
 ## Getting started
@@ -63,7 +62,7 @@ These scripts expect to live in their own subfolder, with sibling data/output fo
 
 ```
 your-project-root/
-├── Scripts/                        <- this repository's contents go here
+├── Scripts/                        
 │   ├── extract_job_criteria.R
 │   ├── run_validation_batch.R
 │   ├── similarity_scoring.R
@@ -96,16 +95,12 @@ The master template of data-steward responsibilities and skills that `similarity
 
 ## Development notes
 
-Portions of this codebase — including code structure, documentation, and the
-cleanup applied for this public release — were drafted with the assistance
-of Claude Sonnet 5 (Anthropic) between July and August 2026. All code was
-reviewed, tested, and verified by the author, who takes full responsibility
-for its correctness and behaviour.
+Portions of this codebase — including code structure, documentation, and the cleanup applied for this public release — were drafted with the assistance of Claude Sonnet 5 (Anthropic) between July and August 2026. All code was reviewed, tested, and verified by the author, who takes full responsibility for its correctness and behaviour.
 
 ## License
 
-- **Code** (all `.R` files in this repository): [MIT License](LICENSE).
-- **Master template and other research-instrument/data deposits**: released separately under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (the standard academic-content license, distinct from the code license above).
+- **Code** (all `.R` files in this repository): [MIT License](LICENSE)
+- **Master template and other research-instrument/data deposits**: released separately under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 
 ## Citation
 
