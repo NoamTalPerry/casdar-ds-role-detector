@@ -1,0 +1,36 @@
+# This CITATION.cff file was generated for the CaSDaR data-steward job-ad
+# analysis pipeline. GitHub renders this automatically as a "Cite this
+# repository" button, and Zenodo reads it to populate deposit metadata once
+# GitHub-Zenodo integration is enabled and a release is tagged.
+#
+# TODO before/at first release:
+#   - fill in `repository-code` with the real GitHub URL
+#   - add a `doi:` field once Zenodo mints one for the first release
+#   - bump `version` and `date-released` to match each tagged release
+#   - add your ORCID under authors if you have one (orcid: "https://orcid.org/...")
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below. A DOI will be added here once the repository is published and a first release is minted via Zenodo."
+type: software
+title: "CaSDaR: Data Steward Job-Ad Analysis Pipeline"
+abstract: >-
+  An R pipeline that identifies and measures data-steward job responsibilities
+  and skills in job-advertisement text, using Claude-based PDF extraction and
+  local embedding-based similarity scoring against a master template of
+  data-steward criteria. Developed for the CaSDaR (Careers and Skills for
+  Data-driven Research) Network+ sub-project "Evidencing the impact of data
+  stewardship roles using administrative and scientometrics data"
+  (UKRI-funded, Grant No. UKRI739).
+authors:
+  - family-names: "Tal-Perry"
+    given-names: "Noam"
+    affiliation: "University of Cambridge"
+version: "0.1.0"
+date-released: "2026-08-28"
+license: MIT
+repository-code: https://github.com/NoamTalPerry/casdar-ds-role-detector
+keywords:
+  - data stewardship
+  - research data management
+  - job advertisement analysis
+  - text similarity
+  - CaSDaR
