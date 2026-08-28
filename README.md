@@ -9,7 +9,7 @@ This repository contains the analysis code developed for the CaSDaR sub-project 
 [CaSDaR](https://casdar.ac.uk/) (Careers and Skills for Data-driven Research) is a UKRI-funded Network+ (Grant No. UKRI739). This repository holds the code for one CaSDaR-funded sub-project, based at the University of Cambridge:
 
 - **Principal Applicant:** Noam Tal-Perry, University of Cambridge ([ORCID](https://orcid.org/0000-0003-2521-9546))
-- **Co-Applicants:** Clair Castle ([ORCID](https://orcid.org/0000-0002-6897-582X)), Kim Clugston, Becky Ioppolo ([ORCID](https://orcid.org/0000-0003-1301-7947)), Steven Wooding ([ORCID](https://orcid.org/0000-0002-8036-1054))— all University of Cambridge
+- **Co-Applicants:** Clair Castle ([ORCID](https://orcid.org/0000-0002-6897-582X)), Kim Clugston ([ORCID](https://orcid.org/0009-0000-5106-4555)), Becky Ioppolo ([ORCID](https://orcid.org/0000-0003-1301-7947)), Steven Wooding ([ORCID](https://orcid.org/0000-0002-8036-1054))— all University of Cambridge
 
 ## Acknowledgements
 
