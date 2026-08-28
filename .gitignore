@@ -1,0 +1,47 @@
+# ==============================================================================
+# CaSDaR pipeline .gitignore
+#
+# This repository is code-only (see README's "What this repository contains").
+# Every script in this pipeline reads/writes real job-ad text, HR-derived
+# data, or scored output relative to the folder these scripts live in - none
+# of that should ever be committed here, even accidentally by someone running
+# the pipeline against real data in a local clone. When in doubt, add rather
+# than remove an entry below.
+# ==============================================================================
+
+# --- Inputs the scripts read (never part of this repo) ----------------------
+/PDFs/
+/Validation_PDFs/
+/Data/
+
+# --- Everything the scripts write ---------------------------------------------
+/Output/
+/Validation_Output/
+/TXTs/
+/TXTs_merged/
+/TXTs_extracted/
+/Validation_TXTs/
+/Validation_TXTs_merged/
+/Validation_TXTs_extracted/
+**/sampling_snapshots/
+**/master_template_versions/
+**/master_template_comparisons/
+**/item_coverage_groups/
+**/logs/
+
+# --- Specific file types produced by the pipeline (belt-and-braces, in case
+# any of the above folder patterns don't match a future layout change) ------
+*.rds
+similarity_scoring_config.yml
+
+# --- R / RStudio housekeeping --------------------------------------------------
+.Rhistory
+.Rdata
+.RData
+.Rproj.user/
+*.Rproj
+
+# --- OS / editor junk -----------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
