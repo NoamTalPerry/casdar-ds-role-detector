@@ -402,9 +402,10 @@ CONFIG <- list(
   # below is a generic placeholder, not the name of a real file in this repo.
   recruitment_data_path     = file.path("..", "Data", "recruitment_export.csv"),
   # Categories judged (from skimming job/position titles) most likely to
-  # contain data stewardship roles. "Researcher" is deliberately excluded
-  # for now - too large/heterogeneous a category, to be targeted separately
-  # later - this is a project decision, not a limitation of the filter.
+  # contain data stewardship roles in our HR data. "Researcher" was
+  # deliberately excluded as too large/heterogeneous a category - a project
+  # decision, not a limitation of the filter. Replace with the category
+  # names used in your own HR export.
   target_position_categories = c(
     "Technician",
     "Computing",
