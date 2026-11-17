@@ -8,7 +8,8 @@
 #          grant UKRI739)
 # License: MIT (see LICENSE)
 # Note:    drafted with the assistance of Claude Sonnet 5 (Anthropic),
-#          Jul-Aug 2026; reviewed and verified by the author.
+#          Jul-Aug 2026, and extended with Claude Sonnet 5.5 (Anthropic),
+#          Oct-Nov 2026; reviewed and verified by the author.
 #
 # Purpose:
 #   Take the merged per-vacancy criteria text produced by
@@ -89,15 +90,15 @@ CONFIG <- list(
   # copy of it. Toggle this (including via the external YAML config) rather
   # than maintaining a second script.
   validation_mode = FALSE,
-
+  
   # --- Script 1 input paths (the input contract produced by extract_job_criteria.R) -
   status_table_path = file.path("..", "Output", "vacancy_status.csv"),
   merged_dir         = file.path("..", "TXTs_merged"),
-
+  
   # --- Validation corpus input paths (used only when validation_mode = TRUE) ----
   validation_status_table_path = file.path("..", "Validation_Output", "validation_status.csv"),
   validation_merged_dir         = file.path("..", "Validation_TXTs_merged"),
-
+  
   # --- Master template --------------------------------------------------------
   # Plain-text, itemized, three sections - see parse_master_template() for the
   # exact expected format and MASTER_TEMPLATE_FORMAT_EXAMPLE below for a
@@ -105,7 +106,7 @@ CONFIG <- list(
   # Script 1 already reads from there (ras_fp_files.csv etc.). Deliberately
   # NOT duplicated for validation_mode - see the validation_mode comment above.
   master_template_path = file.path("..", "Data", "master_template.txt"),
-
+  
   # --- Output ------------------------------------------------------------------
   # A SEPARATE file from vacancy_status.csv, not new columns on it - this
   # script is expected to be re-run repeatedly while granularity modes/models
@@ -114,7 +115,7 @@ CONFIG <- list(
   # One row per (vacancy_number, granularity) pair - see upsert_similarity_scores().
   scores_path = file.path("..", "Output", "similarity_scores.csv"),
   validation_scores_path = file.path("..", "Validation_Output", "validation_similarity_scores.csv"),
-
+  
   # Per-bullet audit detail, item-level mode only - one row per matched item,
   # BOTH directions (job_relevance and master_coverage - see best_matches()).
   # Not columns on scores_path since the master's ~20-30 bullets would make
@@ -123,7 +124,7 @@ CONFIG <- list(
   item_matches_path = file.path("..", "Output", "similarity_item_matches.csv"),
   validation_item_matches_path = file.path("..", "Validation_Output", "validation_similarity_item_matches.csv"),
   write_item_match_detail = TRUE,
-
+  
   # Appended to scores_path/item_matches_path (before the extension) via
   # apply_version_suffix() - e.g. "v2_adjacent_role" ->
   # similarity_scores_v2_adjacent_role.csv. Same mechanism/semantics as
@@ -141,7 +142,7 @@ CONFIG <- list(
   # unchanged between versions, so reuse avoids redundant embedding - see
   # run_master_template_version.R's header comment).
   version_suffix = NULL,
-
+  
   # --- Embedding model (local, via Ollama) -------------------------------------
   # nomic-embed-text: 137M params, 8192-token context, English-focused, runs
   # fine on CPU. Chosen over bge-m3 (heavier, multilingual - wasted capacity
@@ -152,7 +153,7 @@ CONFIG <- list(
   ollama_api_url    = "http://localhost:11434/api/embed",
   ollama_tags_url   = "http://localhost:11434/api/tags",   # used once per run to look up the model's content digest - see get_ollama_model_digest()
   ollama_batch_size = 32,     # texts per HTTP request when embedding a fresh (uncached) batch
-
+  
   # Soft truncation-risk check: an approximate characters-per-token ratio
   # (~4 for English) used only to WARN, never to actually truncate anything
   # ourselves - Ollama does its own truncation silently if a text exceeds the
@@ -161,7 +162,7 @@ CONFIG <- list(
   # nomic-embed-text's real 8192-token limit to leave margin for the
   # 4-chars/token estimate being wrong. Set to NULL to disable the check.
   embed_context_warn_chars = 24000,   # ~6000 tokens at the 4 chars/token estimate
-
+  
   # --- Granularity modes --------------------------------------------------------
   # All three scoring approaches are implemented (see compute_score_document(),
   # compute_score_section(), compute_score_item()) - this just controls which
@@ -169,20 +170,19 @@ CONFIG <- list(
   # external YAML config file without editing this script - see
   # load_external_config(). Valid values: "document", "section", "item".
   granularity_modes = c("section", "document", "item"),
-
+  
   # --- Row filtering (which vacancy_status.csv rows get scored) ---------------
   # Skip "failed" rows, process "complete"/"partial", and additionally skip
   # any row with nothing extracted in either section regardless of status
   # label (n_responsibilities == 0 AND n_skills == 0).
-  scoreable_statuses = c("complete", "partial", "FAILED"),
-
+  scoreable_statuses = c("complete", "partial"),
+  
   # flagged_for_review == TRUE means Script 1 found low repost-overlap across
   # a group's postings (worth a human check on GROUPING) - not a comment on
-  # extraction quality. Skipped by default out of caution, but this is
-  # exactly the toggle exposed in the external YAML config file since you
-  # said you'd want to change it without touching R code.
+  # extraction quality. Skipped by default out of caution; also settable
+  # from the external YAML config file without editing this script.
   process_flagged_for_review = FALSE,
-
+  
   # For small-scale test runs before scoring the full corpus: if non-empty,
   # restricts this run to ONLY these vacancy_numbers - a pure ADDITIONAL
   # restriction on top of the filters above, not a bypass of them (e.g.
@@ -190,18 +190,19 @@ CONFIG <- list(
   # unless process_flagged_for_review/status also allow it through). Leave
   # empty (character(0)) for a normal full run.
   only_vacancy_numbers = character(0),   # e.g. c("EXAMPLE1", "EXAMPLE2", "EXAMPLE3")
-
+  
   # If the master template has an optional GENERAL section (see
   # parse_master_template()), should job RESPONSIBILITY bullets also be
-  # checked against it, or just skills? Default TRUE: several items in a
-  # typical GENERAL synthesis read as duty-framed rather than skill-framed
-  # ("general line-management... responsibility", "represent the
-  # organisation at external events") and job ads don't consistently sort
-  # generic content into the same section the master's synthesis used, so
-  # restricting the check to skills-only risks leaving generic
-  # responsibility bullets uncaught. Set FALSE to check skills only.
+  # checked against it, or just skills? Default FALSE (skills only), so no
+  # responsibility bullet is ever excluded from scoring by the GENERAL pool.
+  # Trade-off if set TRUE: several items in a typical GENERAL synthesis read
+  # as duty-framed rather than skill-framed ("general line-management...
+  # responsibility", "represent the organisation at external events") and
+  # job ads don't consistently sort generic content into the same section
+  # the master's synthesis used, so a skills-only check can leave generic
+  # responsibility bullets counted towards score_responsibilities.
   apply_general_pool_to_responsibilities = FALSE,
-
+  
   # If the master template has an optional ADJACENT_ROLE section (same
   # format as GENERAL, see parse_master_template()), should it be used at
   # all this run? Default FALSE - the whole feature is inert unless
@@ -220,13 +221,13 @@ CONFIG <- list(
   # content, since it captures role-adjacent duties (e.g. data engineer/
   # scientist/PM-adjacent work) rather than generic/soft-skill content.
   use_adjacent_pool = FALSE,
-
-  # Same asymmetry rationale as apply_general_pool_to_responsibilities
-  # above, defaulting the other way: skills are always checked against
+  
+  # Same trade-off and same default as apply_general_pool_to_responsibilities
+  # above: skills are always checked against
   # ADJACENT_ROLE when use_adjacent_pool is TRUE; responsibilities only if
   # this is also TRUE. Has no effect when use_adjacent_pool is FALSE.
   apply_adjacent_pool_to_responsibilities = FALSE,
-
+  
   # --- Re-run behaviour ---------------------------------------------------------
   # If TRUE, a vacancy_number+granularity combination already present in
   # scores_path is skipped (no re-embedding). Set FALSE, or use
@@ -234,7 +235,7 @@ CONFIG <- list(
   skip_existing_scores = TRUE,
   force_rescore_vacancy_numbers = character(0),   # e.g. c("EXAMPLE1", "EXAMPLE2") - always
   # recomputed even if skip_existing_scores is TRUE, for targeted re-checks
-
+  
   # If TRUE (default), skip_existing_scores also requires the existing row's
   # embedding_model (and, when both sides have one recorded, its
   # embedding_model_digest) to match the CURRENT run's model before treating
@@ -244,7 +245,7 @@ CONFIG <- list(
   # file. Every mismatch that triggers a rescore this way is logged. Set
   # FALSE to go back to matching on vacancy_number+granularity alone.
   require_model_match_for_skip = TRUE,
-
+  
   # --- Crash safety / progress ---------------------------------------------------
   # Every this-many vacancies (fully processed, i.e. all their active
   # granularity modes attempted), write accumulated scores/match-detail rows
@@ -256,13 +257,13 @@ CONFIG <- list(
   # at risk in a crash. A final flush always happens at the end of the run
   # regardless of this setting, so nothing is lost from a clean finish.
   checkpoint_every_n_vacancies = 25,
-
+  
   # Log a running progress line ("N/TOTAL vacancies, elapsed, est.
   # remaining") every this-many vacancies. 1 = every vacancy (the default -
   # each one usually involves real network-bound work, so this isn't overly
   # noisy). Set higher to reduce console/log volume on a very large corpus.
   progress_report_every_n = 1,
-
+  
   # --- Embedding cache -----------------------------------------------------------
   # Local embedding is deterministic and cheap, but this script is typically
   # re-run many times while comparing granularity modes on the same ground-
@@ -271,7 +272,7 @@ CONFIG <- list(
   # served stale) across those repeated runs.
   cache_path = file.path("..", "Output", "embedding_cache.rds"),
   validation_cache_path = file.path("..", "Validation_Output", "validation_embedding_cache.rds"),
-
+  
   # --- Diagnostics ---------------------------------------------------------------
   # If TRUE, save the exact pooled text sent to the embedding model per
   # vacancy/section/granularity to a debug folder - lets you inspect
@@ -281,13 +282,13 @@ CONFIG <- list(
   save_pooled_text     = FALSE,
   pooled_text_dir      = file.path("..", "Output", "similarity_pooled_text"),
   validation_pooled_text_dir = file.path("..", "Validation_Output", "similarity_pooled_text"),
-
+  
   call_embeddings = TRUE,   # if FALSE, parse everything and log what WOULD be
   # sent/compared but skip all Ollama calls - mirrors Script 1's call_llm,
   # useful for validating parsing against ground truth before spending any
   # embedding compute (embedding is local/free, but this is still useful for
   # fast parser iteration without waiting on a live Ollama server).
-
+  
   # --- Logging -------------------------------------------------------------------
   # In their own subfolder, not loose in Output/ - a long-running corpus
   # scoring job produces a lot of these, and nothing downstream (any other
@@ -296,7 +297,7 @@ CONFIG <- list(
   log_to_file = TRUE,
   log_dir     = file.path("..", "Output", "logs"),
   validation_log_dir = file.path("..", "Validation_Output", "logs"),
-
+  
   # --- External config file -------------------------------------------------------
   external_config_path = "similarity_scoring_config.yml"
 )
@@ -478,14 +479,14 @@ parse_master_template <- function(path) {
     ))
   }
   lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
-
+  
   find_marker <- function(pattern) which(grepl(pattern, lines, perl = TRUE))
   resp_start <- find_marker("^RESPONSIBILITIES\\s*$")
   ess_start  <- find_marker("^SKILLS\\s*-\\s*ESSENTIAL\\s*$")
   des_start  <- find_marker("^SKILLS\\s*-\\s*DESIRABLE\\s*$")
   gen_start  <- find_marker("^GENERAL\\s*$")   # optional - absence is fine, see comment above
   adj_start  <- find_marker("^ADJACENT_ROLE\\s*$")   # optional, same format/rationale as GENERAL - see CONFIG$use_adjacent_pool
-
+  
   missing <- c(
     if (length(resp_start) == 0) "'RESPONSIBILITIES'",
     if (length(ess_start) == 0) "'SKILLS - ESSENTIAL'",
@@ -497,7 +498,7 @@ parse_master_template <- function(path) {
       path, paste(missing, collapse = ", ")
     ))
   }
-
+  
   markers <- sort(c(
     resp_start[1], ess_start[1], des_start[1],
     if (length(gen_start) > 0) gen_start[1] else NULL,
@@ -519,13 +520,13 @@ parse_master_template <- function(path) {
     # so that parser (parse_merged_job_text() below) doesn't need this.
     sub("^([-*]|[0-9]+[.)])\\s*", "", block)
   }
-
+  
   responsibilities <- extract_block(resp_start[1])
   skills_essential <- extract_block(ess_start[1])
   skills_desirable <- extract_block(des_start[1])
   general           <- if (length(gen_start) > 0) extract_block(gen_start[1]) else character(0)
   adjacent           <- if (length(adj_start) > 0) extract_block(adj_start[1]) else character(0)
-
+  
   if (length(responsibilities) == 0) {
     log_warn(sprintf("Master template's RESPONSIBILITIES section parsed as empty (%s) - responsibilities scoring will be NA for every vacancy until this is fixed.", path))
   }
@@ -538,7 +539,7 @@ parse_master_template <- function(path) {
   if (length(adj_start) > 0 && length(adjacent) == 0) {
     log_warn(sprintf("Master template has an ADJACENT_ROLE header (%s) but it parsed as empty - no items will ever be excluded via that pool this run, even if CONFIG$use_adjacent_pool is TRUE.", path))
   }
-
+  
   list(
     responsibilities = responsibilities,
     skills_essential = skills_essential,
@@ -591,21 +592,21 @@ parse_merged_job_text <- function(path) {
   empty <- list(responsibilities = character(0), skills = character(0))
   if (!file.exists(path)) return(empty)
   lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
-
+  
   resp_start  <- which(lines == "RESPONSIBILITIES")
   skill_start <- which(grepl("^SKILLS", lines))
   if (length(resp_start) == 0 || length(skill_start) == 0) return(empty)
-
+  
   resp_lines  <- lines[(resp_start[1] + 2):(skill_start[1] - 1)]
   skill_lines <- lines[(skill_start[1] + 2):length(lines)]
-
+  
   parse_block <- function(block) {
     if (length(block) == 0) return(character(0))
     block <- block[nzchar(trimws(block))]
     block <- block[block != "(none extracted)"]
     sub("^-\\s*", "", block)
   }
-
+  
   list(responsibilities = parse_block(resp_lines), skills = parse_block(skill_lines))
 }
 
@@ -700,10 +701,10 @@ get_ollama_model_digest <- function(config) {
 # ------------------------------------------------------------------------------
 call_ollama_embed <- function(texts, config, max_tries = 3) {
   if (length(texts) == 0) return(list())
-
+  
   req <- request(config$ollama_api_url) |>
     req_body_json(list(model = config$ollama_model, input = as.list(texts)))
-
+  
   resp <- NULL
   for (attempt in seq_len(max_tries)) {
     resp <- tryCatch(req_perform(req), error = function(e) e)
@@ -713,7 +714,7 @@ call_ollama_embed <- function(texts, config, max_tries = 3) {
     }
     if (attempt < max_tries) Sys.sleep(2 ^ attempt)
   }
-
+  
   if (inherits(resp, "error")) {
     log_warn(paste(
       "Embedding call to Ollama failed:", conditionMessage(resp),
@@ -721,7 +722,7 @@ call_ollama_embed <- function(texts, config, max_tries = 3) {
     ))
     return(NULL)
   }
-
+  
   status <- resp_status(resp)
   if (status >= 400) {
     err_body <- tryCatch(resp_body_json(resp), error = function(e) NULL)
@@ -731,7 +732,7 @@ call_ollama_embed <- function(texts, config, max_tries = 3) {
     ))
     return(NULL)
   }
-
+  
   body <- resp_body_json(resp, simplifyVector = FALSE)
   if (is.null(body$embeddings)) {
     log_warn("Ollama response had no 'embeddings' field - unexpected response shape, check the Ollama version/API.")
@@ -743,22 +744,13 @@ call_ollama_embed <- function(texts, config, max_tries = 3) {
 # ------------------------------------------------------------------------------
 # Cached, batched wrapper around call_ollama_embed(). Cache is a plain R
 # environment keyed on a SHA-256 hash of "<model>||<text>" (via
-# digest::digest()). An earlier version used the raw "<model>||<text>"
-# string itself as the environment variable name to avoid a dependency -
-# that breaks with a hard "variable names are limited to 10000 bytes" error
-# from R itself the moment a pooled document/section text (a whole master
-# template, or a merged job ad unioned across several repostings) gets
-# long, which happens routinely at document/section granularity on real
-# corpora. Hashing removes the length limit entirely and is what this cache
-# should have used from the start. Keying on model name (as part of the
-# hashed input) means switching CONFIG$ollama_model automatically
-# invalidates stale entries rather than silently reusing them.
-#
-# NOTE: this key scheme is NOT compatible with embedding_cache.rds files
-# written before this fix (those used raw-text keys) - old entries just sit
-# unused rather than causing errors, but nothing in an old cache file will
-# register as "already cached" under the new scheme, so the first run after
-# upgrading re-embeds everything once. Safe to delete the old cache file.
+# digest::digest()). The text is hashed rather than used directly as the
+# environment variable name because R limits variable names to 10000
+# bytes, which a pooled document/section text (a whole master template, or
+# a merged job ad unioned across several repostings) routinely exceeds.
+# Keying on model name (as part of the hashed input) means switching
+# CONFIG$ollama_model automatically invalidates stale entries rather than
+# silently reusing them.
 #
 # Returns a list the SAME LENGTH AND ORDER as `texts`, with NULL for any text
 # that failed to embed (caller must handle NULL, not assume every call
@@ -767,7 +759,7 @@ call_ollama_embed <- function(texts, config, max_tries = 3) {
 # ------------------------------------------------------------------------------
 get_embeddings <- function(texts, config, cache_env, warn_label = NULL) {
   if (length(texts) == 0) return(list())
-
+  
   if (!is.null(config$embed_context_warn_chars)) {
     long_idx <- which(nchar(texts) > config$embed_context_warn_chars)
     for (i in long_idx) {
@@ -778,12 +770,12 @@ get_embeddings <- function(texts, config, cache_env, warn_label = NULL) {
       ))
     }
   }
-
+  
   cache_key_for <- function(t) digest::digest(paste0(config$ollama_model, "||", t), algo = "sha256")
   cache_keys <- vapply(texts, cache_key_for, character(1), USE.NAMES = FALSE)
   is_cached  <- vapply(cache_keys, exists, logical(1), envir = cache_env)
   to_fetch_idx <- which(!is_cached)
-
+  
   if (length(to_fetch_idx) > 0 && isTRUE(config$call_embeddings)) {
     to_fetch <- texts[to_fetch_idx]
     chunks <- split(to_fetch, ceiling(seq_along(to_fetch) / config$ollama_batch_size))
@@ -803,7 +795,7 @@ get_embeddings <- function(texts, config, cache_env, warn_label = NULL) {
   } else if (length(to_fetch_idx) > 0 && !isTRUE(config$call_embeddings)) {
     log_msg(sprintf("  [call_embeddings = FALSE] would embed %d text(s) here.", length(to_fetch_idx)))
   }
-
+  
   lapply(cache_keys, function(k) if (exists(k, envir = cache_env)) get(k, envir = cache_env) else NULL)
 }
 
@@ -952,9 +944,9 @@ mean_similarity <- function(matches_df) {
 # pooling too, not just item-level scoring, so a job bullet that's really
 # "excellent written and verbal communication skills" doesn't inflate a
 # document-level score just because it's baked into one pooled string. This
-# is the one place a GENERAL pool costs something document/section modes
-# didn't previously pay for: classifying requires per-item embeddings even
-# when only document/section granularity was requested.
+# is the one place a GENERAL pool adds cost to document/section modes:
+# classifying requires per-item embeddings even when only document/section
+# granularity was requested.
 #
 # check_general lets the caller disable the GENERAL comparison entirely for
 # a given call (used for responsibilities when CONFIG$apply_general_pool_to_
@@ -979,11 +971,11 @@ classify_job_items <- function(ids, texts, section_label,
       core_matches = empty_matches(), general_matches = empty_matches(), checked_general = FALSE
     ))
   }
-
+  
   embeddings <- get_embeddings(texts, config, cache_env,
                                warn_label = sprintf("vacancy %s (item/%s)", vacancy_number, section_label))
   core_matches <- best_matches(ids, texts, embeddings, master_core_ids, master_core_texts, master_core_embeddings)
-
+  
   do_general <- isTRUE(check_general) && length(master_general_ids) > 0
   if (do_general) {
     general_matches <- best_matches(ids, texts, embeddings, master_general_ids, master_general_texts, master_general_embeddings)
@@ -997,7 +989,7 @@ classify_job_items <- function(ids, texts, section_label,
     )
     is_general <- rep(FALSE, length(texts))
   }
-
+  
   list(
     keep_ids = ids[!is_general], keep_texts = texts[!is_general], is_general = is_general,
     core_matches = core_matches, general_matches = general_matches, checked_general = do_general
@@ -1034,11 +1026,11 @@ maybe_save_pooled_text <- function(vacancy_number, granularity, label, text, con
 compute_score_document <- function(job_parsed, master_pooled_all, vacancy_number, config, cache_env) {
   job_text <- pool_text(c(job_parsed$responsibilities, job_parsed$skills))
   maybe_save_pooled_text(vacancy_number, "document", "job", job_text, config)
-
+  
   if (!nzchar(trimws(job_text))) {
     return(list(score_overall = NA_real_))
   }
-
+  
   embeddings <- get_embeddings(c(job_text, master_pooled_all), config, cache_env,
                                warn_label = sprintf("vacancy %s (document)", vacancy_number))
   list(score_overall = cosine_sim(embeddings[[1]], embeddings[[2]]))
@@ -1053,21 +1045,21 @@ compute_score_section <- function(job_parsed, master_pooled_resp, master_pooled_
   job_skills_text <- pool_text(job_parsed$skills)
   maybe_save_pooled_text(vacancy_number, "section", "job_responsibilities", job_resp_text, config)
   maybe_save_pooled_text(vacancy_number, "section", "job_skills", job_skills_text, config)
-
+  
   score_resp <- NA_real_
   if (length(job_parsed$responsibilities) > 0) {
     e <- get_embeddings(c(job_resp_text, master_pooled_resp), config, cache_env,
                         warn_label = sprintf("vacancy %s (section/responsibilities)", vacancy_number))
     score_resp <- cosine_sim(e[[1]], e[[2]])
   }
-
+  
   score_skills <- NA_real_
   if (length(job_parsed$skills) > 0) {
     e <- get_embeddings(c(job_skills_text, master_pooled_skills), config, cache_env,
                         warn_label = sprintf("vacancy %s (section/skills)", vacancy_number))
     score_skills <- cosine_sim(e[[1]], e[[2]])
   }
-
+  
   list(
     score_responsibilities = score_resp,
     score_skills           = score_skills,
@@ -1114,25 +1106,25 @@ compute_score_item <- function(resp_class, skl_class, master,
   # ADJACENT_ROLE" with no further combination needed for these fields.
   resp_final <- if (!is.null(resp_adj_class)) resp_adj_class else resp_class
   skl_final  <- if (!is.null(skl_adj_class))  skl_adj_class  else skl_class
-
+  
   resp_keep_embeddings <- get_embeddings(resp_final$keep_texts, config, cache_env,
                                          warn_label = sprintf("vacancy %s (item/responsibilities, master_coverage)", vacancy_number))
   skl_keep_embeddings  <- get_embeddings(skl_final$keep_texts, config, cache_env,
                                          warn_label = sprintf("vacancy %s (item/skills, master_coverage)", vacancy_number))
-
+  
   # SECONDARY (diagnostic only): master-coverage - for each master criterion,
   # best match among items that survived every active classification stage.
   mc_resp <- best_matches(master_resp_ids, master$responsibilities, master_resp_embeddings,
                           resp_final$keep_ids, resp_final$keep_texts, resp_keep_embeddings)
   mc_skl  <- best_matches(master_skills_ids, master$skills, master_skills_embeddings,
                           skl_final$keep_ids, skl_final$keep_texts, skl_keep_embeddings)
-
+  
   # PRIMARY: job-relevance, averaged over items surviving every active
   # stage - GENERAL- and/or ADJACENT_ROLE-classified items are excluded
   # from the mean entirely, not scored as 0.
   score_resp <- if (nrow(resp_final$core_matches) == 0) NA_real_ else mean_similarity(resp_final$core_matches[!resp_final$is_general, , drop = FALSE])
   score_skl  <- if (nrow(skl_final$core_matches) == 0) NA_real_ else mean_similarity(skl_final$core_matches[!skl_final$is_general, , drop = FALSE])
-
+  
   # Combined exclusion mask, aligned to the ORIGINAL full item set (stage
   # 1's ids/texts) - TRUE if excluded at stage 1, or if it survived stage 1
   # but was then excluded at stage 2. adj_cls$is_general is aligned by
@@ -1147,7 +1139,7 @@ compute_score_item <- function(resp_class, skl_class, master,
     }
     mask
   }
-
+  
   section_rows <- function(section, cls, adj_cls) {
     if (nrow(cls$core_matches) == 0) return(NULL)
     rows <- list(cbind(section = section, direction = "job_relevance", cls$core_matches,
@@ -1172,7 +1164,7 @@ compute_score_item <- function(resp_class, skl_class, master,
     list(cbind(section = section, direction = "master_coverage", mc_df,
                excluded_from_score = FALSE, stringsAsFactors = FALSE))
   }
-
+  
   match_parts <- c(
     section_rows("responsibilities", resp_class, resp_adj_class),
     section_rows("skills", skl_class, skl_adj_class),
@@ -1183,7 +1175,7 @@ compute_score_item <- function(resp_class, skl_class, master,
   )
   match_parts <- Filter(Negate(is.null), match_parts)
   match_detail <- if (length(match_parts) > 0) do.call(rbind, match_parts) else data.frame()
-
+  
   list(
     score_responsibilities = score_resp,
     score_skills           = score_skl,
@@ -1204,28 +1196,28 @@ read_status_table <- function(path) {
 
 filter_scoreable_rows <- function(status_df, config) {
   n_before <- nrow(status_df)
-
+  
   keep_status <- status_df$status %in% config$scoreable_statuses
   skipped_status <- sum(!keep_status)
-
+  
   n_resp <- suppressWarnings(as.integer(trimws(status_df$n_responsibilities)))
   n_skl  <- suppressWarnings(as.integer(trimws(status_df$n_skills)))
   has_content <- !(is.na(n_resp) & is.na(n_skl)) & (coalesce0(n_resp) > 0 | coalesce0(n_skl) > 0)
   skipped_empty <- sum(keep_status & !has_content)
-
+  
   flagged <- toupper(trimws(status_df$flagged_for_review %||% "")) == "TRUE"
   keep_flagged <- flagged & !isTRUE(config$process_flagged_for_review)
   skipped_flagged <- sum(keep_status & has_content & keep_flagged)
-
+  
   keep <- keep_status & has_content & !keep_flagged
   out <- status_df[keep, , drop = FALSE]
-
+  
   log_msg(sprintf(
     "Row filtering: %d total | %d skipped (status not in %s) | %d skipped (nothing extracted) | %d skipped (flagged_for_review, process_flagged_for_review = FALSE) | %d remaining to score.",
     n_before, skipped_status, paste(config$scoreable_statuses, collapse = "/"),
     skipped_empty, skipped_flagged, nrow(out)
   ))
-
+  
   if (length(config$only_vacancy_numbers) > 0) {
     not_found <- setdiff(config$only_vacancy_numbers, out$vacancy_number)
     if (length(not_found) > 0) {
@@ -1240,7 +1232,7 @@ filter_scoreable_rows <- function(status_df, config) {
       nrow(out)
     ))
   }
-
+  
   out
 }
 
@@ -1263,16 +1255,16 @@ already_scored <- function(existing_scores, vn, granularity, config, model_diges
   match_rows <- which(existing_scores$vacancy_number == vn & existing_scores$granularity == granularity)
   if (length(match_rows) == 0) return(FALSE)
   if (!isTRUE(config$require_model_match_for_skip)) return(TRUE)
-
+  
   existing_model_col  <- if ("embedding_model" %in% names(existing_scores)) existing_scores$embedding_model else rep(NA_character_, nrow(existing_scores))
   existing_digest_col <- if ("embedding_model_digest" %in% names(existing_scores)) existing_scores$embedding_model_digest else rep(NA_character_, nrow(existing_scores))
-
+  
   for (idx in match_rows) {
     ex_model  <- existing_model_col[idx]
     ex_digest <- existing_digest_col[idx]
     if (!nzchar(ex_model %||% "")) ex_model <- NA_character_
     if (!nzchar(ex_digest %||% "")) ex_digest <- NA_character_
-
+    
     if (!is.na(ex_model) && !identical(ex_model, config$ollama_model)) {
       log_msg(sprintf(
         "Model mismatch for vacancy_number '%s' [%s]: existing score used '%s', current run uses '%s' - forcing a rescore (set CONFIG$require_model_match_for_skip = FALSE to disable this check).",
@@ -1299,25 +1291,25 @@ already_scored <- function(existing_scores, vn, granularity, config, model_diges
 upsert_similarity_scores <- function(path, new_rows) {
   if (nrow(new_rows) == 0) return(invisible(NULL))
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-
+  
   new_rows$.key <- paste(new_rows$vacancy_number, new_rows$granularity, sep = "::")
-
+  
   if (file.exists(path)) {
     existing <- utils::read.csv(path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
     existing$.key <- paste(existing$vacancy_number, existing$granularity, sep = "::")
     existing <- existing[!(existing$.key %in% new_rows$.key), , drop = FALSE]
-
+    
     missing_in_existing <- setdiff(names(new_rows), names(existing))
     for (col in missing_in_existing) existing[[col]] <- rep("", nrow(existing))   # rep(), not a bare "" - errors when existing has 0 rows (e.g. every row for this key just got superseded)
     missing_in_new <- setdiff(names(existing), names(new_rows))
     for (col in missing_in_new) new_rows[[col]] <- rep("", nrow(new_rows))
-
+    
     all_cols <- union(names(existing), names(new_rows))
     combined <- rbind(existing[all_cols], new_rows[all_cols])
   } else {
     combined <- new_rows
   }
-
+  
   combined <- combined[order(combined$vacancy_number, combined$granularity), , drop = FALSE]
   combined$.key <- NULL
   utils::write.csv(combined, path, row.names = FALSE)
@@ -1369,24 +1361,24 @@ flush_progress <- function(config, results, item_match_results, cache_env) {
 upsert_item_matches <- function(path, new_rows) {
   if (nrow(new_rows) == 0) return(invisible(NULL))
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-
+  
   touched_vacancies <- unique(new_rows$vacancy_number)
-
+  
   if (file.exists(path)) {
     existing <- utils::read.csv(path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
     existing <- existing[!(existing$vacancy_number %in% touched_vacancies), , drop = FALSE]
-
+    
     missing_in_existing <- setdiff(names(new_rows), names(existing))
     for (col in missing_in_existing) existing[[col]] <- rep("", nrow(existing))   # rep(), not a bare "" - errors when existing has 0 rows (e.g. every row for this vacancy just got superseded)
     missing_in_new <- setdiff(names(existing), names(new_rows))
     for (col in missing_in_new) new_rows[[col]] <- rep("", nrow(new_rows))
-
+    
     all_cols <- union(names(existing), names(new_rows))
     combined <- rbind(existing[all_cols], new_rows[all_cols])
   } else {
     combined <- new_rows
   }
-
+  
   combined <- combined[order(combined$vacancy_number, combined$section, combined$direction, combined$anchor_item_id), , drop = FALSE]
   utils::write.csv(combined, path, row.names = FALSE)
 }
@@ -1429,10 +1421,10 @@ resolve_paths_for_mode_similarity_scoring <- function(config) {
 # ==============================================================================
 main_similarity_scoring <- function(config) {
   config <- resolve_paths_for_mode_similarity_scoring(config)
-
+  
   .log_con <<- setup_log_file(config)
   on.exit(if (!is.null(.log_con)) close(.log_con), add = TRUE)
-
+  
   log_msg(sprintf("=== similarity_scoring.R run started: %s ===", Sys.time()))
   if (isTRUE(config$validation_mode)) {
     log_msg(sprintf(
@@ -1445,16 +1437,16 @@ main_similarity_scoring <- function(config) {
   if (length(invalid_modes) > 0) {
     stop(sprintf("CONFIG$granularity_modes contains unrecognized value(s): %s. Valid values: 'document', 'section', 'item'.", paste(invalid_modes, collapse = ", ")))
   }
-
+  
   master <- parse_master_template(config$master_template_path)
   log_msg(sprintf(
     "Master template parsed: %d responsibilities, %d essential + %d desirable skills (%d merged).",
     length(master$responsibilities), length(master$skills_essential),
     length(master$skills_desirable), length(master$skills)
   ))
-
+  
   cache_env <- load_embedding_cache(config$cache_path)
-
+  
   model_digest <- NA_character_
   if (isTRUE(config$call_embeddings)) {
     model_digest <- get_ollama_model_digest(config)
@@ -1465,12 +1457,12 @@ main_similarity_scoring <- function(config) {
   } else {
     log_msg("[call_embeddings = FALSE] skipping model digest lookup (no Ollama calls this run).")
   }
-
+  
   # Master-side embeddings needed once per run, computed only for active modes.
   master_pooled_all <- pool_text(c(master$responsibilities, master$skills))
   master_pooled_resp <- pool_text(master$responsibilities)
   master_pooled_skills <- pool_text(master$skills)
-
+  
   master_resp_item_embeddings    <- list()
   master_skills_item_embeddings  <- list()
   master_general_item_embeddings <- list()
@@ -1479,14 +1471,14 @@ main_similarity_scoring <- function(config) {
   master_skills_ids  <- character(0)
   master_general_ids <- character(0)
   master_adjacent_ids <- character(0)
-
+  
   # Whether the ADJACENT_ROLE pool is actually in play this run - gated on
   # BOTH the toggle AND the section having content, so a template that
   # happens to have an ADJACENT_ROLE section but use_adjacent_pool = FALSE
   # never pays for it (no embeddings computed at all - see CONFIG$use_
   # adjacent_pool for the full rationale).
   adjacent_pool_active <- isTRUE(config$use_adjacent_pool) && length(master$adjacent) > 0
-
+  
   # Per-item master embeddings are needed not just for item-level scoring,
   # but whenever a GENERAL pool exists or the ADJACENT_ROLE pool is active
   # this run - classify_job_items() (called per vacancy below) needs them
@@ -1496,7 +1488,7 @@ main_similarity_scoring <- function(config) {
   # so a template with no GENERAL section and no active ADJACENT_ROLE pool
   # costs exactly what this script cost before either feature existed.
   needs_item_embeddings <- ("item" %in% config$granularity_modes) || (length(master$general) > 0) || adjacent_pool_active
-
+  
   if (needs_item_embeddings) {
     log_msg("Embedding master-template items (item-level scoring and/or GENERAL/ADJACENT_ROLE-pool classification) ...")
     master_resp_item_embeddings    <- get_embeddings(master$responsibilities, config, cache_env, warn_label = "master template (item/responsibilities)")
@@ -1525,15 +1517,15 @@ main_similarity_scoring <- function(config) {
       ))
     }
   }
-
+  
   status_df <- read_status_table(config$status_table_path)
   to_score <- filter_scoreable_rows(status_df, config)
-
+  
   existing_scores <- NULL
   if (isTRUE(config$skip_existing_scores) && file.exists(config$scores_path)) {
     existing_scores <- utils::read.csv(config$scores_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
   }
-
+  
   results <- list()
   item_match_results <- list()
   n_scored <- 0
@@ -1542,7 +1534,7 @@ main_similarity_scoring <- function(config) {
   n_failed <- 0
   vacancies_since_checkpoint <- 0
   run_start_time <- Sys.time()
-
+  
   # Called at the end of EVERY outer-loop iteration - including early exits
   # (missing file, classification failure) - so progress reporting and
   # checkpoint counting never get silently skipped just because a
@@ -1567,12 +1559,12 @@ main_similarity_scoring <- function(config) {
       vacancies_since_checkpoint <<- 0
     }
   }
-
+  
   for (i in seq_len(nrow(to_score))) {
     row <- to_score[i, ]
     vn <- row$vacancy_number
     force_this <- vn %in% config$force_rescore_vacancy_numbers
-
+    
     merged_path <- merged_file_path(vn, config)
     if (!file.exists(merged_path)) {
       log_warn(sprintf("vacancy_number '%s' is marked scoreable in vacancy_status.csv but its merged file is missing: %s - skipping.", vn, merged_path))
@@ -1589,7 +1581,7 @@ main_similarity_scoring <- function(config) {
       end_of_vacancy_iteration(i)
       next
     }
-
+    
     # Classification (GENERAL-pool filtering, then optionally a SECOND,
     # independent ADJACENT_ROLE-pool pass on top of whatever survives) -
     # shared across ALL granularity modes for this vacancy, computed once
@@ -1624,7 +1616,7 @@ main_similarity_scoring <- function(config) {
           check_general = TRUE,
           vn, config, cache_env
         )
-
+        
         # Stage 2: ADJACENT_ROLE, applied only to stage-1 survivors (their
         # own ids/texts become this call's "job items" input) - so a bullet
         # already excluded as GENERAL never gets a second, redundant look
@@ -1650,10 +1642,10 @@ main_similarity_scoring <- function(config) {
           resp_adj_class <- NULL
           skl_adj_class  <- NULL
         }
-
+        
         final_resp_texts <- if (adjacent_pool_active) resp_adj_class$keep_texts else resp_class$keep_texts
         final_skl_texts  <- if (adjacent_pool_active) skl_adj_class$keep_texts  else skl_class$keep_texts
-
+        
         list(resp_class = resp_class, skl_class = skl_class,
              resp_adj_class = resp_adj_class, skl_adj_class = skl_adj_class,
              filtered_job_parsed = list(responsibilities = final_resp_texts, skills = final_skl_texts))
@@ -1678,16 +1670,16 @@ main_similarity_scoring <- function(config) {
       skl_adj_class  <- NULL
       filtered_job_parsed <- job_parsed
     }
-
+    
     for (granularity in config$granularity_modes) {
       already_done <- already_scored(existing_scores, vn, granularity, config, model_digest)
       if (already_done && !force_this) {
         n_skipped_existing <- n_skipped_existing + 1
         next
       }
-
+      
       log_msg(sprintf("Scoring vacancy_number '%s' [%s] ...", vn, granularity))
-
+      
       scores <- tryCatch({
         switch(
           granularity,
@@ -1707,7 +1699,7 @@ main_similarity_scoring <- function(config) {
         n_failed <- n_failed + 1
         next
       }
-
+      
       if (granularity == "item" && isTRUE(config$write_item_match_detail) &&
           !is.null(scores$match_detail) && nrow(scores$match_detail) > 0) {
         detail <- scores$match_detail
@@ -1760,7 +1752,7 @@ main_similarity_scoring <- function(config) {
           stringsAsFactors = FALSE
         )
       }
-
+      
       # Output columns (similarity_scores.csv):
       #   vacancy_number / position_category / position_title  - which job ad
       #   granularity            - "document" / "section" / "item"
@@ -1803,15 +1795,15 @@ main_similarity_scoring <- function(config) {
       )
       n_scored <- n_scored + 1
     }
-
+    
     end_of_vacancy_iteration(i)
   }
-
+  
   log_msg(sprintf(
     "Scoring complete: %d (vacancy, granularity) rows scored, %d skipped (already scored), %d skipped (missing merged file), %d failed.",
     n_scored, n_skipped_existing, n_missing_file, n_failed
   ))
-
+  
   flush_progress(config, results, item_match_results, cache_env)
   log_msg("Done.")
 }
