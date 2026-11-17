@@ -8,12 +8,13 @@
 #          grant UKRI739)
 # License: MIT (see LICENSE)
 # Note:    drafted with the assistance of Claude Sonnet 5 (Anthropic),
-#          Jul-Aug 2026; reviewed and verified by the author.
+#          Jul-Aug 2026, and extended with Claude Sonnet 5.5 (Anthropic),
+#          Oct-Nov 2026; reviewed and verified by the author.
 #
 # Purpose:
-#   Runs analyze_item_coverage.R once per label group (default: Cambridge
-#   DS+Partial DS combined vs. Cambridge No-DS, matching the "collapse"
-#   scheme already used throughout this project's threshold analysis),
+#   Runs analyze_item_coverage.R once per label group (default: three
+#   groups - DS, Partial DS and No-DS - matching run_master_template_version.R
+#   and triangulate_item_coverage.R),
 #   deriving each group's vacancy list directly from a labelled-sample file
 #   rather than requiring separate manual filter CSVs and separate manual
 #   runs. Produces one durable trace of the whole operation: which
@@ -55,36 +56,37 @@ base_item_coverage_config <- CONFIG  # snapshot analyze_item_coverage.R's own CO
 
 CONFIG_WRAPPER <- list(
   # The labelled sample to split into groups - needs 'vacancy_number' and
-  # 'label' columns. E.g. cambridge_labeled_with_all_scores.csv.
+  # 'label' columns. E.g. main_labeled_with_all_scores.csv.
   labeled_data_path = file.path("..", "Output", "threshold_analysis",
-                                "cambridge_labeled_with_all_scores.csv"),
-
+                                "main_labeled_with_all_scores.csv"),
+  
   # Named list: group name -> label value(s) that define membership. Any
-  # number of groups. Default matches the "collapse" scheme (DS + Partial DS
-  # combined vs. No-DS) already anchoring this project's threshold analysis
-  # - edit directly for a different split (e.g. three-way DS / Partial DS /
-  # No-DS, or excluding Partial DS entirely to mirror the "exclude" scheme).
+  # number of groups. Default is a three-way split (DS / Partial DS / No-DS),
+  # the same groups run_master_template_version.R and
+  # triangulate_item_coverage.R expect - edit directly for a different split
+  # (e.g. DS + Partial DS combined vs. No-DS to mirror the "collapse" scheme,
+  # or dropping Partial DS entirely to mirror the "exclude" scheme).
   groups = list(
-    cambridge_ds   = c("DS"),
-    cambridge_partial = c("Partial DS"),
-    cambridge_nods = c("No-DS")
+    main_ds      = c("DS"),
+    main_partial = c("Partial DS"),
+    main_nods    = c("No-DS")
   ),
-
+  
   # Where the derived per-group vacancy-number lists get written - kept as
   # their own small files (not just used in-memory) so there's a durable,
   # inspectable record of exactly which vacancies went into each group.
   filter_output_dir = file.path("..", "Output", "item_coverage_groups"),
-
+  
   # Passed through to analyze_item_coverage.R for every group's run -
   # validation_mode is forced to FALSE regardless of what's set here (the
-  # Cambridge sample lives in the main corpus's output, never the
+  # labelled sample lives in the main corpus's output, never the
   # validation corpus's - see analyze_item_coverage.R's own CONFIG for what
   # validation_mode actually switches).
   item_matches_path      = file.path("..", "Output", "similarity_item_matches.csv"),
   summary_output_dir      = file.path("..", "Output"),
   match_rate_thresholds     = c(0.3, 0.4, 0.5, 0.6, 0.7),
   make_plots = TRUE,
-
+  
   # Passed straight through to each group's analyze_item_coverage.R run as
   # its own version_suffix - a second, independent suffix axis from the
   # per-group output_suffix set automatically below (see
@@ -94,7 +96,7 @@ CONFIG_WRAPPER <- list(
   # own CONFIG_VERSION$version_suffix; NULL (no suffix) for a plain
   # standalone run.
   version_suffix = NULL,
-
+  
   log_to_file = TRUE,
   log_dir     = file.path("..", "Output", "logs")
 )
@@ -119,7 +121,7 @@ read_labeled_data <- function(path) {
 validate_groups <- function(groups, labeled_data) {
   actual_labels <- unique(labeled_data$label)
   configured_labels <- unique(unlist(groups))
-
+  
   bad <- setdiff(configured_labels, actual_labels)
   if (length(bad) > 0) {
     stop(sprintf(
@@ -127,7 +129,7 @@ validate_groups <- function(groups, labeled_data) {
       paste(bad, collapse = ", "), paste(actual_labels, collapse = ", ")
     ))
   }
-
+  
   unassigned <- setdiff(actual_labels, configured_labels)
   if (length(unassigned) > 0) {
     log_warn(sprintf(
@@ -135,7 +137,7 @@ validate_groups <- function(groups, labeled_data) {
       paste(unassigned, collapse = ", ")
     ))
   }
-
+  
   label_to_groups <- list()
   for (g in names(groups)) for (l in groups[[g]]) label_to_groups[[l]] <- c(label_to_groups[[l]], g)
   overlaps <- Filter(function(gs) length(gs) > 1, label_to_groups)
@@ -161,27 +163,27 @@ run_wrapper <- function(config) {
   wrapper_log_con <- setup_log_file(config)
   .log_con <<- wrapper_log_con
   on.exit(if (!is.null(wrapper_log_con)) close(wrapper_log_con), add = TRUE)
-
+  
   log_msg(sprintf("=== run_item_coverage_by_label.R wrapper started: %s ===", Sys.time()))
   log_msg(sprintf("Groups configured: %s", paste(names(config$groups), collapse = ", ")))
-
+  
   labeled <- read_labeled_data(config$labeled_data_path)
   log_msg(sprintf("Loaded labelled data: %d row(s) from %s.", nrow(labeled), config$labeled_data_path))
   validate_groups(config$groups, labeled)
-
+  
   result_paths <- list()
-
+  
   for (group_name in names(config$groups)) {
     label_values <- config$groups[[group_name]]
     ids <- unique(labeled$vacancy_number[labeled$label %in% label_values])
     filter_path <- write_group_filter(ids, group_name, config$filter_output_dir)
     log_msg(sprintf("Group '%s' (labels: %s): %d vacancy_number(s) -> %s", group_name, paste(label_values, collapse = "/"), length(ids), filter_path))
-
+    
     if (length(ids) == 0) {
       log_warn(sprintf("Group '%s' has zero vacancies - skipping its analyze_item_coverage.R run entirely.", group_name))
       next
     }
-
+    
     group_config <- base_item_coverage_config
     group_config$validation_mode        <- FALSE
     group_config$item_matches_path       <- config$item_matches_path
@@ -195,11 +197,11 @@ run_wrapper <- function(config) {
     group_config$match_rate_thresholds = config$match_rate_thresholds
     group_config$log_to_file = TRUE   # each group still gets its own detailed log from analyze_item_coverage.R itself
     group_config$log_dir = file.path(config$log_dir, group_name)   # distinct subdirectory per group - guarantees a separate log file every run, not just when timestamps happen to differ (they're seconds-precision and these calls can land in the same second)
-
+    
     log_msg(sprintf("--- Running analyze_item_coverage.R for group '%s' ---", group_name))
     group_result <- main_analyze_item_coverage(group_config)
     .log_con <<- wrapper_log_con   # restore wrapper log connection - main_analyze_item_coverage() unconditionally reassigns .log_con on every call, see header comment
-
+    
     # Recompute the SAME final path main_analyze_item_coverage() just wrote
     # to (output_suffix = group name first, version_suffix last - see
     # analyze_item_coverage.R's resolve_paths_for_mode_item_coverage() for
@@ -210,13 +212,13 @@ run_wrapper <- function(config) {
     result_paths[[group_name]] <- summary_path
     log_msg(sprintf("Group '%s' done: %d master item(s) summarized, written to %s", group_name, nrow(group_result), summary_path))
   }
-
+  
   log_msg("=== All groups done. Ready-to-paste coverage_inputs for triangulate_item_coverage.R: ===")
   log_msg("coverage_inputs = list(")
   group_lines <- sprintf('  %s = "%s"', names(result_paths), unlist(result_paths))
   log_msg(paste(group_lines, collapse = ",\n"))
   log_msg(")")
-
+  
   log_msg("Done.")
   invisible(result_paths)
 }
