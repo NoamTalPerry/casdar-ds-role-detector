@@ -28,24 +28,27 @@ Every script's own header comment describes exactly what inputs it expects and w
 
 ## Pipeline overview
 
-The eleven scripts in this repository form two connected pipelines plus a small set of comparison/versioning tools:
+The fourteen scripts in this repository form two connected pipelines plus a small set of comparison/versioning tools:
 
 **Main extraction → scoring → coverage pipeline**
 1. `extract_job_criteria.R` — extracts responsibilities/skills criteria from job-ad PDFs via the Claude API, groups reposted vacancies, and optionally enriches records with HR status data.
 2. `run_validation_batch.R` — runs `extract_job_criteria.R` against a separate, external validation corpus (job ads outside the main study corpus), fully isolated from the main pipeline's inputs/outputs.
-3. `similarity_scoring.R` — scores each vacancy's extracted text against a master template of data-steward criteria using local embeddings (via [Ollama](https://ollama.com)), at document/section/item granularity.
-4. `analyze_item_coverage.R` — aggregates item-level match data across vacancies to show which master-template criteria are reliably matched in real job ads.
-5. `run_item_coverage_by_label.R` — wraps `analyze_item_coverage.R` to run it once per labelled group (e.g. confirmed data-steward roles vs. non-data-steward roles), deriving each group's vacancy list from a labelled sample.
-6. `triangulate_item_coverage.R` — joins multiple `analyze_item_coverage.R` outputs together to compare coverage across groups and estimate a per-item discrimination gap.
+3. `diagnose_failed_vacancies.R` — explains why vacancy groups are marked `failed` or `partial` (scanned PDFs needing OCR, garbled font encoding, truncated or unparseable responses, API errors, postings skipped by the category filter), using the run logs, the files on disk and an optional probe of the PDFs. Read-only by default.
+4. `similarity_scoring.R` — scores each vacancy's extracted text against a master template of data-steward criteria using local embeddings (via [Ollama](https://ollama.com)), at document/section/item granularity.
+5. `analyze_item_coverage.R` — aggregates item-level match data across vacancies to show which master-template criteria are reliably matched in real job ads.
+6. `run_item_coverage_by_label.R` — wraps `analyze_item_coverage.R` to run it once per labelled group (e.g. confirmed data-steward roles vs. non-data-steward roles), deriving each group's vacancy list from a labelled sample.
+7. `triangulate_item_coverage.R` — joins multiple `analyze_item_coverage.R` outputs together to compare coverage across groups and estimate a per-item discrimination gap.
 
-**Validation sampling → reliability → threshold pipeline**
-7. `draw_negative_validation_sample.R` — draws a reproducible, stratified sample of vacancies for manual labelling, oversampling near the empirical decision boundary.
-8. `export_reliability_recheck.R` — produces a second, blind review pass over a subset of the drawn sample, for inter-rater or self-reliability checking.
-9. `run_threshold_analysis.R` — builds the weighted ROC/precision-recall picture from the labelled sample plus an external positive validation set, to support choosing an operating threshold.
+**Validation sampling → reliability → threshold → review-set pipeline**
+8. `draw_negative_validation_sample.R` — draws a reproducible, stratified sample of vacancies for manual labelling, oversampling near the empirical decision boundary.
+9. `export_reliability_recheck.R` — produces a second, blind review pass over a subset of the drawn sample, for inter-rater or self-reliability checking, and resolves the passes (with an optional adjudication pass) into final labels.
+10. `run_threshold_analysis.R` — builds the weighted ROC/precision-recall picture from the labelled sample plus an external positive validation set, to support choosing an operating threshold.
+11. `export_review_set.R` — applies the chosen thresholds to the full corpus's scores to build the set of candidate data-steward vacancies for manual review (a strict and a lenient tier).
+12. `report_review_labels.R` — once the review set has been labelled, reports the label shares by tier and position category (the real-corpus precision of each tier) and how well the scores order positives within the set, with small-cell suppression on every shareable output.
 
 **Versioning / comparison tools**
-10. `run_master_template_version.R` — a general wrapper that scores a candidate master template end-to-end (both corpora, plus the full downstream analysis chain) into one dedicated, versioned output folder, for testing template variants.
-11. `compare_master_template_versions.R` — compares two or more completed `run_master_template_version.R` runs side by side (AUC, threshold-sweep summaries, plots).
+13. `run_master_template_version.R` — a general wrapper that scores a candidate master template end-to-end (both corpora, plus the full downstream analysis chain) into one dedicated, versioned output folder, for testing template variants.
+14. `compare_master_template_versions.R` — compares two or more completed `run_master_template_version.R` runs side by side (AUC, threshold-sweep summaries, plots).
 
 Each script can also be run standalone; see its own header comment for the exact input/output contract and a fuller design rationale.
 
@@ -53,8 +56,8 @@ Each script can also be run standalone; see its own header comment for the exact
 
 The scripts fall into two groups:
 
-- **General-purpose tools.** `extract_job_criteria.R` (with `run_validation_batch.R`) and `similarity_scoring.R` are written to be reused. Point them at your own job-ad PDFs and your own master template, and they extract criteria and score each ad against it. All project-specific settings live in each script's `CONFIG` block.
-- **Project-specific analysis.** The remaining scripts cover sampling, the reliability and adjudication workflow, threshold analysis, item-coverage analysis and template-version comparison. They implement the validation design used in this project: a score-stratified sample from our own corpus, blind manual labelling with a second pass and adjudication, and an external positive set. They are shared for transparency, so the analysis behind our results can be inspected and reproduced. They should run on comparable inputs, but they assume our file layout, label scheme (DS / Partial DS / No-DS) and sampling design, so you may need to adapt them rather than run them as they are.
+- **General-purpose tools.** `extract_job_criteria.R` (with `run_validation_batch.R`, and `diagnose_failed_vacancies.R` to explain any failed extractions) and `similarity_scoring.R` are written to be reused. Point them at your own job-ad PDFs and your own master template, and they extract criteria and score each ad against it. All project-specific settings live in each script's `CONFIG` block.
+- **Project-specific analysis.** The remaining scripts cover sampling, the reliability and adjudication workflow, threshold analysis, building and reporting on the manual review set, item-coverage analysis and template-version comparison. They implement the validation design used in this project: a score-stratified sample from our own corpus, blind manual labelling with a second pass and adjudication, and an external positive set. They are shared for transparency, so the analysis behind our results can be inspected and reproduced. They should run on comparable inputs, but they assume our file layout, label scheme (DS / Partial DS / No-DS) and sampling design, so you may need to adapt them rather than run them as they are.
 
 ## Requirements
 
@@ -86,13 +89,14 @@ your-project-root/
 **Typical run order**, starting from your own PDFs and master template:
 
 1. Place your job-ad PDFs under `PDFs/` (and, separately, any external validation-set PDFs under `Validation_PDFs/`); place your master template at `Data/master_template.txt` (see `similarity_scoring.R`'s `parse_master_template()` for the required format).
-2. `Rscript extract_job_criteria.R` — extracts and merges criteria from the main corpus.
+2. `Rscript extract_job_criteria.R` — extracts and merges criteria from the main corpus. If some vacancy groups end up `failed` or `partial`, `Rscript diagnose_failed_vacancies.R` explains why before you decide whether to re-run, raise `max_tokens` or OCR the PDFs.
 3. `Rscript run_validation_batch.R` — does the same for the external validation corpus, fully isolated from step 2.
-4. `Rscript similarity_scoring.R` — score the main corpus (`CONFIG$validation_mode = FALSE`) and, separately, the validation corpus (`CONFIG$validation_mode = TRUE`) against the master template. `run_master_template_version.R` (step 8) can do both of these in one wrapped run if you're testing a template version rather than running the base pipeline.
+4. `Rscript similarity_scoring.R` — score the main corpus (`CONFIG$validation_mode = FALSE`) and, separately, the validation corpus (`CONFIG$validation_mode = TRUE`) against the master template. `run_master_template_version.R` (step 9) can do both of these in one wrapped run if you're testing a template version rather than running the base pipeline.
 5. `Rscript draw_negative_validation_sample.R` → label the resulting blind review file → `Rscript export_reliability_recheck.R` → label pass 2 → call `compare_passes()` for an agreement figure. If disagreements go to an adjudicator, have them label a pass-3 file covering the disputed rows, then call `compare_passes()` again with it and `build_final_labels()` to produce one final label per vacancy. `run_threshold_analysis.R` uses these final labels by default; set its `label_source = "pass1"` if you did a single labelling pass.
 6. `Rscript run_threshold_analysis.R` — once the labelled sample from step 5 is complete, builds the ROC/precision-recall picture for threshold selection.
-7. `Rscript analyze_item_coverage.R` (or `run_item_coverage_by_label.R` to run it per labelled group) → `Rscript triangulate_item_coverage.R` to compare groups and estimate per-item discrimination.
-8. To test a candidate master template version end-to-end: `Rscript run_master_template_version.R`, then `Rscript compare_master_template_versions.R` once you have two or more completed version runs to compare.
+7. `Rscript export_review_set.R` — applies the chosen thresholds to the main corpus's scores to build the review set; review it blind (as in step 5), join the labels back to the review set, then `Rscript report_review_labels.R` for the label shares and precision of each tier.
+8. `Rscript analyze_item_coverage.R` (or `run_item_coverage_by_label.R` to run it per labelled group) → `Rscript triangulate_item_coverage.R` to compare groups and estimate per-item discrimination.
+9. To test a candidate master template version end-to-end: `Rscript run_master_template_version.R`, then `Rscript compare_master_template_versions.R` once you have two or more completed version runs to compare.
 
 Each script's own header comment is the authoritative reference for its exact CONFIG options and output files.
 
