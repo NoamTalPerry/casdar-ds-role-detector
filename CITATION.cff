@@ -25,3 +25,25 @@ keywords:
   - job advertisement analysis
   - text similarity
   - CaSDaR
+references:
+  - type: data
+    title: "CaSDaR Master Template (v5): A coding scheme of responsibilities and skills for identifying data steward roles in job advertisements"
+    authors:
+      - family-names: "Tal-Perry"
+        given-names: "Noam"
+        affiliation: "University of Cambridge"
+        orcid: https://orcid.org/0000-0003-2521-9546
+      - family-names: "Clugston"
+        given-names: "Kim"
+        affiliation: "University of Cambridge"
+        orcid: https://orcid.org/0009-0000-5106-4555
+      - family-names: "Castle"
+        given-names: "Clair"
+        affiliation: "University of Cambridge"
+        orcid: https://orcid.org/0000-0002-6897-582X
+    year: 2026
+    version: "5"
+    doi: 10.17863/CAM.133662
+    publisher:
+      name: "Apollo - University of Cambridge Repository"
+    license: CC-BY-4.0
