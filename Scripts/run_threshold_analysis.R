@@ -37,14 +37,14 @@
 #
 # Methodology (read this before changing the weighting logic):
 #
-#   The Cambridge sample is a DISPROPORTIONATE STRATIFIED draw, stratified
+#   The main-corpus sample is a DISPROPORTIONATE STRATIFIED draw, stratified
 #   BY DOCUMENT-LEVEL SCORE specifically (see draw_negative_validation_sample.R).
 #   Naively pooling all rows unweighted biases not just precision but
 #   TPR/FPR too, since a true-DS job that happened to score high (drawn
 #   from Band 1 at a higher sampling probability) is over-represented
 #   relative to one that scored low (drawn from Band 4 at a lower
 #   probability) if you just count rows. Every rate computed from the
-#   Cambridge sample - TPR, FPR, precision, recall, F1, AUC - uses one
+#   main-corpus sample - TPR, FPR, precision, recall, F1, AUC - uses one
 #   consistent inverse-probability-weighted confusion matrix, not a naive
 #   count.
 #
@@ -63,7 +63,7 @@
 #
 #   The external positive set (Liu, 2026a - see the Purpose section above)
 #   is NOT part of this sampling frame - no defined inclusion probability
-#   relative to the Cambridge sample, so it's reported as a separate,
+#   relative to the main-corpus sample, so it's reported as a separate,
 #   unweighted cross-check column, never folded into the weighted estimate.
 #
 #   Two DIFFERENT files both called "validation scores" show up here:
@@ -82,7 +82,7 @@
 #   - auc_summary.csv                 - one row per score_spec x scheme: AUC
 #                                        + how many sampled vacancies had a
 #                                        usable score for that spec
-#   - cambridge_labeled_with_all_scores.csv - wide export: one row per
+#   - main_labeled_with_all_scores.csv - wide export: one row per
 #                                        sampled vacancy, one column per
 #                                        requested score_spec, plus
 #                                        band/weight/label
@@ -117,30 +117,30 @@ CONFIG <- list(
   # left as-is here rather than silently "corrected", since your own
   # on-disk structure should decide the right answer, not a guess.
   snapshot_dir = file.path("..", "sampling_snapshots", "hard_negative_sample_EXAMPLE_DATE"),
-
-
+  
+  
   # The CURRENT (live) positive validation set - NOT inside the snapshot
   # folder. Used only for the external-recall cross-check column.
   current_validation_scores_path = file.path("..", "Validation_Output",
                                              "validation_similarity_scores.csv"),
-
+  
   crosswalk_filename = "sample_key_CROSSWALK_do_not_open_until_review_complete.csv",
   pass1_blind_glob    = "review_blind_pass1_*.csv",
   vacancy_status_snapshot_filename    = "vacancy_status_snapshot.csv",
   similarity_scores_snapshot_filename  = "similarity_scores_snapshot.csv",
   validation_scores_snapshot_filename   = "validation_similarity_scores_snapshot.csv",
   manifest_filename                      = "manifest.txt",
-
+  
   # Fixed at "document" - this is what the ORIGINAL draw was stratified on,
   # and band population/weights are only meaningful relative to that. Do not
   # change this to test other granularities - use score_specs below instead.
   granularity = "document",
-
+  
   # Must match what the original draw used, or population recomputation
   # won't line up with how the sample was actually drawn.
   eligible_statuses = c("complete", "partial"),
   exclude_flagged_for_review = TRUE,
-
+  
   # --- What to actually compare -----------------------------------------------
   # One entry per score definition you want swept. 'name' is used in
   # filenames/columns - keep it short and filename-safe. 'granularity' picks
@@ -152,13 +152,13 @@ CONFIG <- list(
   # this list, no code changes needed to test a different combination.
   #
   # Optional per-spec 'scores_path'/'validation_scores_path': by default a
-  # spec reads Cambridge-side scores from the frozen snapshot
+  # spec reads main-corpus scores from the frozen snapshot
   # (similarity_scores_snapshot.csv) and external-positive scores from
   # CONFIG$current_validation_scores_path below - the same files every
   # other spec uses. Set one or both on a specific spec to instead read
   # from a DIFFERENT file entirely - e.g. scores computed under a modified
   # master template (the ADJACENT_ROLE ablation), scored separately via
-  # similarity_scoring.R's only_vacancy_numbers (Cambridge side) and
+  # similarity_scoring.R's only_vacancy_numbers (main-corpus side) and
   # validation_mode = TRUE (external side) into their own output files.
   # Band weights are unaffected by this - they depend only on how the
   # sample was SAMPLED (frozen, historical), never on which scores you
@@ -171,7 +171,7 @@ CONFIG <- list(
     list(name = "item",     granularity = "item",     score_column = "score_overall"),
     list(name = "section_responsibilities", granularity = "section", score_column = "score_responsibilities"),
     list(name = "section_skills",           granularity = "section", score_column = "score_skills")
-
+    
     # Example: same score_skills definition, but scored under a DIFFERENT
     # master template (e.g. master_template_v2.txt with the ADJACENT_ROLE
     # pool toggled on) - point at wherever THAT run's output went, instead
@@ -180,9 +180,9 @@ CONFIG <- list(
     #        scores_path = file.path("..", "Output", "similarity_scores_v2.csv"),
     #        validation_scores_path = file.path("..", "Validation_Output", "validation_similarity_scores_v2.csv"))
   ),
-
+  
   output_dir = file.path("..", "Output", "threshold_analysis"),
-
+  
   # Which MASTER TEMPLATE VERSION (or, more generally, which run of this
   # script) produced the CSV/PNG outputs listed above - appended via
   # apply_version_suffix() to every one of them. Same mechanism/semantics
@@ -190,7 +190,7 @@ CONFIG <- list(
   # analyze_item_coverage.R's version_suffix comment). Set automatically by
   # that wrapper; NULL (no suffix) for a plain standalone run.
   version_suffix = NULL,
-
+  
   log_to_file = TRUE,
   log_dir     = file.path("..", "Output", "logs")
 )
@@ -253,40 +253,40 @@ recompute_bands_and_population <- function(config) {
   for (p in c(status_path, scores_path, origvalid_path)) {
     if (!file.exists(p)) stop(sprintf("Expected frozen snapshot file not found: %s", p))
   }
-
+  
   status <- utils::read.csv(status_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
   scores <- utils::read.csv(scores_path, stringsAsFactors = FALSE, na.strings = "NA")
   scores$vacancy_number <- as.character(scores$vacancy_number)
   origvalid <- utils::read.csv(origvalid_path, stringsAsFactors = FALSE, na.strings = "NA")
-
+  
   ov <- origvalid[origvalid$granularity == config$granularity & !is.na(origvalid$score_overall), ]
   if (nrow(ov) == 0) stop("Frozen validation_similarity_scores_snapshot.csv has no usable rows at this granularity - can't reconstruct the original Band 1 floor.")
   band1_floor <- min(ov$score_overall)
-
+  
   keep_status <- status$status %in% config$eligible_statuses
   flagged <- toupper(trimws(status$flagged_for_review)) == "TRUE"
   keep_flag <- if (isTRUE(config$exclude_flagged_for_review)) !flagged else rep(TRUE, nrow(status))
   elig_status <- status[keep_status & keep_flag, , drop = FALSE]
-
+  
   sc_doc <- scores[scores$granularity == config$granularity & !is.na(scores$score_overall), , drop = FALSE]
-
+  
   merged <- merge(
     elig_status[, "vacancy_number", drop = FALSE],
     sc_doc[, c("vacancy_number", "score_overall")],
     by = "vacancy_number"
   )
   merged <- merged[!duplicated(merged$vacancy_number), , drop = FALSE]
-
+  
   q <- stats::quantile(merged$score_overall, probs = c(0.25, 0.75), na.rm = TRUE, names = FALSE)
   band3_floor <- q[1]
   band2_floor <- q[2]
-
+  
   merged$band <- with(merged, ifelse(
     score_overall >= band1_floor, "band_1", ifelse(
       score_overall >= band2_floor, "band_2", ifelse(
         score_overall >= band3_floor, "band_3", "band_4"
       ))))
-
+  
   population <- table(merged$band)
   log_msg(sprintf(
     "Recomputed from frozen snapshot: band_1 >= %.4f | band_2 [%.4f, %.4f) | band_3 [%.4f, %.4f) | band_4 < %.4f",
@@ -294,7 +294,7 @@ recompute_bands_and_population <- function(config) {
   ))
   log_msg("Recomputed eligible population per band:")
   print(population)
-
+  
   list(
     cutoffs = c(band_1_floor = band1_floor, band_2_floor = band2_floor, band_3_floor = band3_floor),
     population = population,
@@ -333,7 +333,7 @@ verify_against_manifest <- function(config, recomputed) {
 }
 
 # ==============================================================================
-# Step 2: Load the labelled Cambridge sample (crosswalk + blind pass1, joined
+# Step 2: Load the labelled main-corpus sample (crosswalk + blind pass1, joined
 # on review_id) and attach the inverse-probability weight per band. Does NOT
 # attach a score here - that happens per score_spec in Step 4, since this
 # base sample is reused across every spec.
@@ -342,11 +342,11 @@ load_labeled_sample_base <- function(config, population) {
   crosswalk_path <- file.path(config$snapshot_dir, config$crosswalk_filename)
   if (!file.exists(crosswalk_path)) stop(sprintf("Crosswalk not found: %s", crosswalk_path))
   crosswalk <- utils::read.csv(crosswalk_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
-
+  
   pass1_path <- find_one_file(config$snapshot_dir, config$pass1_blind_glob, "pass-1 blind review file")
   log_msg(sprintf("Using pass-1 file: %s", pass1_path))
   pass1 <- utils::read.csv(pass1_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
-
+  
   blank <- !nzchar(trimws(pass1$label))
   if (any(blank)) {
     stop(sprintf(
@@ -364,23 +364,23 @@ load_labeled_sample_base <- function(config, population) {
       paste(pass1$review_id[bad], collapse = ", ")
     ))
   }
-
+  
   m <- merge(crosswalk, pass1[, c("review_id", "label")], by = "review_id")
   if (nrow(m) != nrow(crosswalk)) {
     log_warn(sprintf("Crosswalk has %d rows but only %d matched a labelled pass-1 row - check the pass-1 file is the right one for this crosswalk.", nrow(crosswalk), nrow(m)))
   }
-
+  
   m$score_document_at_draw_time <- as.numeric(m$score_at_draw_time)
   drawn_n <- table(m$band)
   bands <- names(drawn_n)
   weight_lookup <- setNames(as.numeric(population[bands]) / as.numeric(drawn_n[bands]), bands)
   m$weight <- weight_lookup[m$band]
-
+  
   log_msg("Drawn n per band (from crosswalk) and resulting inverse-probability weight:")
   print(data.frame(band = bands, population = as.numeric(population[bands]), drawn = as.numeric(drawn_n[bands]), weight = weight_lookup[bands]))
   log_msg("Raw (unweighted) label counts by band - small-n bands here mean a wide-uncertainty weighted estimate for that stratum:")
   print(table(m$band, m$label))
-
+  
   m
 }
 
@@ -398,7 +398,7 @@ load_validation_raw <- function(config) {
 
 # ==============================================================================
 # Step 4: Per-spec score attachment. Pulls the requested (granularity,
-# score_column) out of the raw tables for the Cambridge sample and the
+# score_column) out of the raw tables for the main-corpus sample and the
 # external positives. Drops rows with no usable score for this spec,
 # logging how many.
 # ==============================================================================
@@ -425,12 +425,12 @@ attach_score_for_spec <- function(labeled_sample_base, spec, raw_scores, alt_cac
   sc <- source_table[source_table$granularity == spec$granularity, c("vacancy_number", spec$score_column), drop = FALSE]
   names(sc)[2] <- "score"
   sc <- sc[!duplicated(sc$vacancy_number), , drop = FALSE]
-
+  
   d <- merge(labeled_sample_base, sc, by = "vacancy_number", all.x = TRUE)
   n_missing <- sum(is.na(d$score))
   if (n_missing > 0) {
     log_warn(sprintf(
-      "score_spec '%s': %d of %d Cambridge sample rows have no usable '%s' at granularity '%s'%s - dropped from this spec's analysis.",
+      "score_spec '%s': %d of %d main-corpus sample rows have no usable '%s' at granularity '%s'%s - dropped from this spec's analysis.",
       spec$name, n_missing, nrow(d), spec$score_column, spec$granularity,
       if (!is.null(spec$scores_path)) sprintf(" (source: %s)", spec$scores_path) else ""
     ))
@@ -453,7 +453,7 @@ attach_score_for_spec_external <- function(validation_raw, spec, alt_cache = NUL
 }
 
 # ==============================================================================
-# Step 5: Build the Cambridge positive/negative class per partial-handling
+# Step 5: Build the main-corpus positive/negative class per partial-handling
 # scheme. Unchanged by the multi-spec extension - operates on 'label', not
 # on the score column.
 # ==============================================================================
@@ -479,26 +479,26 @@ weighted_confusion_sweep <- function(scheme_data, external_scores) {
   scores <- scheme_data$score
   eps <- .Machine$double.eps * 100
   thresholds <- sort(unique(c(min(scores) - eps, scores, max(scores) + eps)))
-
+  
   pos <- scheme_data[scheme_data$class == "positive", , drop = FALSE]
   neg <- scheme_data[scheme_data$class == "negative", , drop = FALSE]
   pos_weight_total <- sum(pos$weight)
   neg_weight_total <- sum(neg$weight)
-
+  
   rows <- lapply(thresholds, function(t) {
     wtp <- sum(pos$weight[pos$score >= t])
     wfn <- pos_weight_total - wtp
     wfp <- sum(neg$weight[neg$score >= t])
     wtn <- neg_weight_total - wfp
-
+    
     tpr <- if (pos_weight_total > 0) wtp / pos_weight_total else NA_real_
     fpr <- if (neg_weight_total > 0) wfp / neg_weight_total else NA_real_
     precision <- if ((wtp + wfp) > 0) wtp / (wtp + wfp) else NA_real_
     recall <- tpr
     f1 <- if (!is.na(precision) && !is.na(recall) && (precision + recall) > 0) 2 * precision * recall / (precision + recall) else NA_real_
-
+    
     ext_recall <- if (length(external_scores) > 0) mean(external_scores >= t) else NA_real_
-
+    
     # Output columns (threshold_sweep_all.csv), one row per (score_spec,
     # partial_scheme, threshold) combination swept:
     #   score_spec / partial_scheme  - added by the caller: which score
@@ -595,17 +595,17 @@ main_threshold_analysis <- function(config) {
   .log_con <<- setup_log_file(config)
   on.exit(if (!is.null(.log_con)) close(.log_con), add = TRUE)
   log_msg(sprintf("=== run_threshold_analysis.R run started: %s ===", Sys.time()))
-
+  
   band_info <- recompute_bands_and_population(config)
   verify_against_manifest(config, band_info)
-
+  
   labeled_base <- load_labeled_sample_base(config, band_info$population)
   validation_raw <- load_validation_raw(config)
   alt_scores_cache <- new.env(parent = emptyenv())   # per-run cache for any spec-level scores_path/validation_scores_path overrides - see attach_score_for_spec()
-
+  
   if (!dir.exists(config$output_dir)) dir.create(config$output_dir, recursive = TRUE)
-
-  # Output columns (cambridge_labeled_with_all_scores.csv), one row per
+  
+  # Output columns (main_labeled_with_all_scores.csv), one row per
   # sampled vacancy:
   #   review_id / vacancy_number  - identifiers (review_id is the blinded ID
   #                                used during labelling; vacancy_number is
@@ -631,18 +631,18 @@ main_threshold_analysis <- function(config) {
     names(sc)[2] <- paste0("score_", spec$name)
     wide <- merge(wide, sc, by = "vacancy_number", all.x = TRUE)
   }
-  wide_path <- apply_version_suffix(file.path(config$output_dir, "cambridge_labeled_with_all_scores.csv"), config$version_suffix)
+  wide_path <- apply_version_suffix(file.path(config$output_dir, "main_labeled_with_all_scores.csv"), config$version_suffix)
   utils::write.csv(wide, wide_path, row.names = FALSE)
   log_msg(sprintf("Wrote wide labelled+scores export: %s", wide_path))
-
+  
   all_sweeps <- list()
   auc_rows <- list()
   schemes <- c("exclude", "collapse")
-
+  
   for (spec in config$score_specs) {
     labeled_spec <- attach_score_for_spec(labeled_base, spec, band_info$raw_scores, alt_scores_cache)
     external_spec <- attach_score_for_spec_external(validation_raw, spec, alt_scores_cache)
-
+    
     for (scheme in schemes) {
       scheme_data <- build_scheme_data(labeled_spec, scheme)
       n_pos <- sum(scheme_data$class == "positive")
@@ -653,7 +653,7 @@ main_threshold_analysis <- function(config) {
         log_warn(sprintf("Skipping '%s' - zero rows in one class after filtering (spec's missing-score drops may be the cause).", combo_label))
         next
       }
-
+      
       sweep <- weighted_confusion_sweep(scheme_data, external_spec)
       auc <- weighted_auc(sweep)
       sweep$score_spec <- spec$name
@@ -664,34 +664,34 @@ main_threshold_analysis <- function(config) {
       #                                 handling scheme
       #   weighted_AUC                   - area under the weighted ROC curve for
       #                                    this combination
-      #   n_positive / n_negative          - how many Cambridge sample rows had a
+      #   n_positive / n_negative          - how many main-corpus sample rows had a
       #                                     usable score and fell in each class
       #                                     for this spec/scheme (this can vary
       #                                     across specs due to per-spec missing-
       #                                     score drops - see attach_score_for_spec())
       auc_rows[[combo_label]] <- data.frame(score_spec = spec$name, partial_scheme = scheme, weighted_AUC = auc, n_positive = n_pos, n_negative = n_neg)
       log_msg(sprintf("'%s': weighted AUC = %.4f", combo_label, auc))
-
+      
       generate_threshold_metrics_plot(sweep, combo_label, config$output_dir, config$version_suffix)
     }
   }
-
+  
   if (length(all_sweeps) == 0) stop("No spec/scheme combination produced usable results - check score_specs and the snapshot data.")
-
+  
   aggregated <- do.call(rbind, all_sweeps)
   rownames(aggregated) <- NULL
   aggregated <- aggregated[, c("score_spec", "partial_scheme", setdiff(names(aggregated), c("score_spec", "partial_scheme")))]
   sweep_path <- apply_version_suffix(file.path(config$output_dir, "threshold_sweep_all.csv"), config$version_suffix)
   utils::write.csv(aggregated, sweep_path, row.names = FALSE)
   log_msg(sprintf("Wrote aggregated sweep table (%d rows, %d spec x scheme combinations): %s", nrow(aggregated), length(all_sweeps), sweep_path))
-
+  
   auc_summary <- do.call(rbind, auc_rows)
   rownames(auc_summary) <- NULL
   auc_summary_path <- apply_version_suffix(file.path(config$output_dir, "auc_summary.csv"), config$version_suffix)
   utils::write.csv(auc_summary, auc_summary_path, row.names = FALSE)
   log_msg(sprintf("Wrote AUC summary: %s", auc_summary_path))
   print(auc_summary)
-
+  
   for (scheme in schemes) {
     scheme_sweeps <- all_sweeps[grepl(paste0("_", scheme, "$"), names(all_sweeps))]
     names(scheme_sweeps) <- sub(paste0("_", scheme, "$"), "", names(scheme_sweeps))
@@ -702,7 +702,7 @@ main_threshold_analysis <- function(config) {
       log_msg(sprintf("Only one usable score_spec for scheme '%s' - skipping the comparison plot (nothing to compare).", scheme))
     }
   }
-
+  
   log_msg("=== Done. ===")
   invisible(list(band_info = band_info, aggregated = aggregated, auc_summary = auc_summary))
 }
