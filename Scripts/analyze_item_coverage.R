@@ -8,7 +8,8 @@
 #          grant UKRI739)
 # License: MIT (see LICENSE)
 # Note:    drafted with the assistance of Claude Sonnet 5 (Anthropic),
-#          Jul-Aug 2026; reviewed and verified by the author.
+#          Jul-Aug 2026, and extended with Claude Sonnet 5.5 (Anthropic),
+#          Oct-Nov 2026; reviewed and verified by the author.
 #
 # Purpose:
 #   Aggregates similarity_item_matches.csv's "master_coverage" rows ACROSS
@@ -58,14 +59,14 @@
 # ==============================================================================
 
 CONFIG <- list(
-  validation_mode = TRUE,   # default TRUE for now since that's the corpus that exists to analyze - flip to FALSE for the main study once it has item-level output
-
+  validation_mode = FALSE,  # TRUE to analyze the validation corpus's item matches instead of the main study's
+  
   item_matches_path            = file.path("..", "Output", "similarity_item_matches.csv"),
   validation_item_matches_path = file.path("..", "Validation_Output", "validation_similarity_item_matches.csv"),
-
+  
   summary_output_path            = file.path("..", "Output", "item_coverage_summary.csv"),
   validation_summary_output_path = file.path("..", "Validation_Output", "validation_item_coverage_summary.csv"),
-
+  
   # Similarity thresholds to report a "match rate" (proportion of vacancies
   # where this master item's best match scored >= threshold) at -
   # deliberately reported at SEVERAL thresholds as separate columns rather
@@ -74,7 +75,7 @@ CONFIG <- list(
   # match_rate_at_X.X column plus the "lowest scorer" flag in the log uses
   # the smallest one as its bar (see near the bottom of main_analyze_item_coverage()).
   match_rate_thresholds = c(0.3, 0.4, 0.5, 0.6, 0.7),
-
+  
   # If the loaded file spans more than one embedding_model (e.g. you
   # switched models between runs and some vacancies haven't been rescored
   # yet), mixing their similarity scores into one average would blend two
@@ -84,7 +85,7 @@ CONFIG <- list(
   # particular one instead of the automatic most-common choice.
   warn_on_mixed_models = TRUE,
   analyze_specific_model = NULL,
-
+  
   # --- Optional: restrict analysis to a specific subset of vacancies --------
   # Leave both NULL for the original behavior (every vacancy in the loaded
   # file). Two ways to specify a subset - vacancy_filter_ids takes priority
@@ -104,13 +105,13 @@ CONFIG <- list(
   vacancy_filter_ids     = NULL,
   vacancy_filter_path     = NULL,
   vacancy_filter_column     = "vacancy_number",
-
+  
   # Appended to summary_output_path/plot_output_path (before the extension)
   # so a filtered run doesn't overwrite the unfiltered corpus-wide summary,
   # or a previous filtered run's output. E.g. "labelgroup_a" ->
   # item_coverage_summary_labelgroup_a.csv. NULL = no suffix.
   output_suffix = NULL,
-
+  
   # A SECOND, independent suffix axis from output_suffix above - which
   # MASTER TEMPLATE VERSION produced this file (e.g. "v2_variant"), rather
   # than which label group it was filtered to. Applied AFTER output_suffix
@@ -120,13 +121,13 @@ CONFIG <- list(
   # CONFIG_VERSION$version_suffix when this script is run through that
   # wrapper; NULL (no suffix) for a plain standalone run.
   version_suffix = NULL,
-
+  
   # Simple horizontal bar chart (base R graphics only, no extra packages)
   # of mean similarity per master item, sorted worst-to-best. Set to NULL
   # to skip.
   plot_output_path            = file.path("..", "Output", "item_coverage_plot.png"),
   validation_plot_output_path = file.path("..", "Validation_Output", "validation_item_coverage_plot.png"),
-
+  
   log_to_file = TRUE,
   log_dir     = file.path("..", "Output", "logs"),
   validation_log_dir = file.path("..", "Validation_Output", "logs")
@@ -238,7 +239,7 @@ resolve_vacancy_filter <- function(config) {
 summarize_master_item <- function(section, item_id, item_text, scores, n_vacancies_total, thresholds) {
   valid <- scores[!is.na(scores)]
   n_compared <- length(valid)
-
+  
   # Output columns (item_coverage_summary.csv), one row per master item:
   #   section / master_item_id / master_item_text  - which master criterion
   #   n_vacancies_total       - vacancies in scope for this run (all of them,
@@ -281,22 +282,22 @@ main_analyze_item_coverage <- function(config) {
   config <- resolve_paths_for_mode_item_coverage(config)
   .log_con <<- setup_log_file(config)
   on.exit(if (!is.null(.log_con)) close(.log_con), add = TRUE)
-
+  
   log_msg(sprintf("=== analyze_item_coverage.R run started: %s ===", Sys.time()))
   if (isTRUE(config$validation_mode)) {
     log_msg("*** VALIDATION MODE ACTIVE *** - analyzing the validation corpus's item matches.")
   }
-
+  
   if (!file.exists(config$item_matches_path)) {
     stop(sprintf(
       "No item-match file found at '%s'. Run similarity_scoring.R with 'item' in granularity_modes first.",
       config$item_matches_path
     ))
   }
-
+  
   df <- utils::read.csv(config$item_matches_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
   log_msg(sprintf("Loaded %d row(s) from %s (%d vacancies).", nrow(df), config$item_matches_path, length(unique(df$vacancy_number))))
-
+  
   # --- Optional vacancy filter --------------------------------------------------
   vacancy_ids <- resolve_vacancy_filter(config)
   if (!is.null(vacancy_ids)) {
@@ -319,7 +320,7 @@ main_analyze_item_coverage <- function(config) {
       log_warn("A vacancy filter is active but CONFIG$output_suffix is NULL - this run will overwrite the unfiltered summary/plot output. Set output_suffix to avoid this.")
     }
   }
-
+  
   # --- Model consistency check --------------------------------------------------
   model_counts <- sort(table(df$embedding_model), decreasing = TRUE)
   if (length(model_counts) > 1 && isTRUE(config$warn_on_mixed_models)) {
@@ -337,7 +338,7 @@ main_analyze_item_coverage <- function(config) {
       target_model, nrow(df), n_before
     ))
   }
-
+  
   # --- Filter to master_coverage direction --------------------------------------
   # The direction whose anchor item is a MASTER criterion - the one relevant
   # to "which master items get matched" (job_relevance/general_match rows
@@ -347,14 +348,14 @@ main_analyze_item_coverage <- function(config) {
     stop("No master_coverage rows found in this file - was similarity_scoring.R run with 'item' in granularity_modes?")
   }
   mc$similarity_score <- suppressWarnings(as.numeric(mc$similarity_score))
-
+  
   n_vacancies_total <- length(unique(df$vacancy_number))
   log_msg(sprintf("Aggregating master_coverage rows across %d vacancies.", n_vacancies_total))
-
+  
   # --- One summary row per (section, master_item_id) ----------------------------
   keys <- unique(mc[, c("section", "anchor_item_id", "anchor_item_text")])
   keys <- keys[order(keys$section, keys$anchor_item_id), ]
-
+  
   summary_rows <- lapply(seq_len(nrow(keys)), function(i) {
     item_rows <- mc[mc$section == keys$section[i] & mc$anchor_item_id == keys$anchor_item_id[i], , drop = FALSE]
     summarize_master_item(
@@ -363,17 +364,17 @@ main_analyze_item_coverage <- function(config) {
     )
   })
   summary_df <- do.call(rbind, summary_rows)
-
+  
   # Worst-covered first within each section - the most actionable ordering
   # for spotting items that might not belong in the template, or that need
   # rewording to match how real ads phrase things. NA (never comparable at
   # all) sorts first - even more worth a look than "compared but scored low".
   summary_df <- summary_df[order(summary_df$section, summary_df$mean_similarity, na.last = FALSE), ]
-
+  
   dir.create(dirname(config$summary_output_path), recursive = TRUE, showWarnings = FALSE)
   utils::write.csv(summary_df, config$summary_output_path, row.names = FALSE)
   log_msg(sprintf("Wrote %d-row summary to %s", nrow(summary_df), config$summary_output_path))
-
+  
   low_bar <- min(config$match_rate_thresholds)
   never_compared <- summary_df[summary_df$n_vacancies_compared == 0, ]
   if (nrow(never_compared) > 0) {
@@ -389,7 +390,7 @@ main_analyze_item_coverage <- function(config) {
       low_bar, paste(low_scorers$master_item_id, collapse = ", ")
     ))
   }
-
+  
   # --- Optional plot ---------------------------------------------------------
   if (!is.null(config$plot_output_path)) {
     tryCatch({
@@ -420,7 +421,7 @@ main_analyze_item_coverage <- function(config) {
       }
     }, error = function(e) log_warn(sprintf("Could not save plot (%s) - continuing without it.", conditionMessage(e))))
   }
-
+  
   log_msg("Done.")
   invisible(summary_df)
 }
