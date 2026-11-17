@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite it using the metadata below. A DOI will be added here once the repository is published and a first release is minted via Zenodo."
+message: "If you use this software, please cite it using the metadata below."
 type: software
 title: "CaSDaR: Data Steward Job-Ad Analysis Pipeline"
 abstract: >-
@@ -9,14 +9,15 @@ abstract: >-
   data-steward criteria. Developed for the CaSDaR (Careers and Skills for
   Data-driven Research) Network+ sub-project "Evidencing the impact of data
   stewardship roles using administrative and scientometrics data"
-  (UKRI-funded, Grant No. UKRI739).
+  (UKRI-funded, Grant No. UKRI739). The code is MIT-licensed; the earlier
+  master template versions in templates/ are released under CC BY 4.0.
 authors:
   - family-names: "Tal-Perry"
     given-names: "Noam"
     affiliation: "University of Cambridge"
     orcid: https://orcid.org/0000-0003-2521-9546
-version: "0.1.0"
-date-released: "2026-08-28"
+version: "0.2.0"
+date-released: "2026-11-17"
 license: MIT
 repository-code: https://github.com/NoamTalPerry/casdar-ds-role-detector
 keywords:
