@@ -1,8 +1,10 @@
 # CaSDaR: Data Steward Job-Ad Analysis Pipeline
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24326574.svg)](https://doi.org/10.5281/zenodo.24326574)
+
 This repository contains the analysis code developed for the CaSDaR sub-project *"Evidencing the impact of data stewardship roles using administrative and scientometrics data"*, an R pipeline that identifies and measures data-steward job responsibilities and skills in job-advertisement text using embedding-based similarity scoring against a master template of data-steward criteria.
 
-> **Status:** the master template is deposited in Apollo, the University of Cambridge's institutional repository ([doi:10.17863/CAM.133662](https://doi.org/10.17863/CAM.133662); see [Master template](#master-template-data-deposit) below). A citable DOI for this code will be added once a first release is minted (see [Citation](#citation)).
+> **Status:** the master template is deposited in Apollo, the University of Cambridge's institutional repository ([doi:10.17863/CAM.133662](https://doi.org/10.17863/CAM.133662); see [Master template](#master-template-data-deposit) below). The code is archived on Zenodo ([doi:10.5281/zenodo.24326574](https://doi.org/10.5281/zenodo.24326574); see [Citation](#citation)).
 
 ## About the project
 
@@ -121,7 +123,11 @@ Portions of this codebase — including code structure, documentation, and the c
 
 ## Citation
 
-A citable DOI for this code will be minted via GitHub's integration with [Zenodo](https://zenodo.org) once the repository is public and a first release is tagged. This section will be updated with the DOI and a suggested citation at that point.
+Each release of this code is archived on [Zenodo](https://zenodo.org). If you use it, please cite:
+
+> Tal-Perry, N. (2026). *CaSDaR: Data Steward Job-Ad Analysis Pipeline* (Version 0.2.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.24326574
+
+This DOI always resolves to the latest release; the Zenodo record also lists a DOI for each specific version, if you need to cite the exact version you used. GitHub's "Cite this repository" button (from `CITATION.cff`) gives the same citation in APA and BibTeX. If you use the master template, please also cite its own deposit (see [Master template](#master-template-data-deposit)).
 
 ## Contact
 
