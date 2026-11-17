@@ -90,17 +90,17 @@ CONFIG <- list(
   master_template_path     = file.path("..", "Data", "master_template.txt"),
   merged_dir                = file.path("..", "TXTs_merged"),
   validation_scores_path     = file.path("..", "Validation_Output", "validation_similarity_scores.csv"),
-
+  
   # --- Snapshot / output location ---------------------------------------------
   snapshot_root = file.path("..", "Output", "sampling_snapshots"),
   sample_label  = "hard_negative_sample",   # used in the snapshot folder name and output filenames
-
+  
   # --- Reproducibility -----------------------------------------------------------
   # Fixed and recorded in manifest.txt. Change deliberately (and re-run the
   # whole draw) if you ever need a different sample - never edit results by
   # hand instead.
   random_seed = 20260811L,
-
+  
   # --- Which granularity's score_overall defines the bands --------------------
   # "document" chosen as the primary stratifier: natural 1:1 join to
   # vacancy_number, and empirically the second-best-separating granularity
@@ -111,20 +111,20 @@ CONFIG <- list(
   # comparisons rather than one pooled comparison). Section-level score is
   # still recorded per sampled row for a secondary robustness check later.
   granularity_for_bands = "document",
-
+  
   # --- Eligibility filters -----------------------------------------------------
   eligible_statuses = c("complete", "partial"),
   # Excludes the pending-grouping-review vacancies - their grouping
   # correctness is a separate open question from negative/positive labelling
   # and shouldn't be tangled into this exercise.
   exclude_flagged_for_review = TRUE,
-
+  
   # --- Band 1 floor: anchored to the current validation positives, not a
   # round number. Falls back to a manually-set value (logged loudly) if the
   # validation scores file is missing/empty at the configured granularity -
   # e.g. before any validation run has happened yet. -------------------------
   fallback_band1_floor = 0.708,
-
+  
   # --- Sample allocation --------------------------------------------------------
   # Deliberately disproportionate: dense sampling where the decision is
   # actually uncertain (bands 1-2, near the positive-validation floor),
@@ -135,12 +135,12 @@ CONFIG <- list(
   # exist, but band sizes are recorded in manifest.txt precisely so that
   # weighting is possible later.
   band_targets = c(band_1 = 20L, band_2 = 15L, band_3 = 15L, band_4 = 10L),
-
+  
   # No single position_category may exceed this fraction of any band's
   # drawn sample - a soft cap (redraw within the band, not a hard grid), so
   # a thin category (e.g. Library) never forces empty cells.
   category_cap_fraction = 0.6,
-
+  
   # --- Reliability subsample ---------------------------------------------------
   # A designated subset of the same drawn sample, spread across all bands,
   # flagged for a second independent pass (a real second rater if a
@@ -149,7 +149,7 @@ CONFIG <- list(
   # above. Allocated roughly proportional to band size, minimum 2 per band
   # so every band gets SOME reliability check.
   n_reliability_check = 18L,
-
+  
   log_to_file = TRUE,
   log_dir     = file.path("..", "Output", "logs")
 )
@@ -186,21 +186,21 @@ parse_merged_job_text <- function(path) {
   empty <- list(responsibilities = character(0), skills = character(0))
   if (!file.exists(path)) return(empty)
   lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
-
+  
   resp_start  <- which(lines == "RESPONSIBILITIES")
   skill_start <- which(grepl("^SKILLS", lines))
   if (length(resp_start) == 0 || length(skill_start) == 0) return(empty)
-
+  
   resp_lines  <- lines[(resp_start[1] + 2):(skill_start[1] - 1)]
   skill_lines <- lines[(skill_start[1] + 2):length(lines)]
-
+  
   parse_block <- function(block) {
     if (length(block) == 0) return(character(0))
     block <- block[nzchar(trimws(block))]
     block <- block[block != "(none extracted)"]
     sub("^-\\s*", "", block)
   }
-
+  
   list(responsibilities = parse_block(resp_lines), skills = parse_block(skill_lines))
 }
 
@@ -226,7 +226,7 @@ snapshot_inputs <- function(config) {
   } else {
     dir.create(snap_dir, recursive = TRUE)
   }
-
+  
   copy_one <- function(src, dest_name, required = TRUE) {
     dest <- file.path(snap_dir, dest_name)
     if (!file.exists(src)) {
@@ -236,14 +236,14 @@ snapshot_inputs <- function(config) {
     file.copy(src, dest, overwrite = TRUE)
     dest
   }
-
+  
   paths <- list(
     status    = copy_one(config$status_table_path, "vacancy_status_snapshot.csv"),
     scores    = copy_one(config$scores_path, "similarity_scores_snapshot.csv"),
     master    = copy_one(config$master_template_path, sprintf("master_template_v1_%s.txt", stamp)),
     valscores = copy_one(config$validation_scores_path, "validation_similarity_scores_snapshot.csv", required = FALSE)
   )
-
+  
   log_msg(sprintf("Snapshotted inputs into: %s", snap_dir))
   list(dir = snap_dir, stamp = stamp, paths = paths)
 }
@@ -293,22 +293,22 @@ load_validation_floor <- function(snap, config) {
 build_eligible_population <- function(data, band1_floor, config) {
   status <- data$status
   scores <- data$scores
-
+  
   keep_status <- status$status %in% config$eligible_statuses
   flagged <- toupper(trimws(status$flagged_for_review %||% "")) == "TRUE"
   keep_flag <- if (isTRUE(config$exclude_flagged_for_review)) !flagged else rep(TRUE, nrow(status))
-
+  
   elig_status <- status[keep_status & keep_flag, , drop = FALSE]
   log_msg(sprintf(
     "Eligibility filter: %d of %d vacancy_status.csv rows kept (status in {%s}%s).",
     nrow(elig_status), nrow(status), paste(config$eligible_statuses, collapse = ", "),
     if (isTRUE(config$exclude_flagged_for_review)) ", flagged_for_review == FALSE" else ""
   ))
-
+  
   sc <- scores[scores$granularity == config$granularity_for_bands, , drop = FALSE]
   sc <- sc[!is.na(sc$score_overall), , drop = FALSE]
   sc$vacancy_number <- as.character(sc$vacancy_number)
-
+  
   merged <- merge(
     elig_status[, c("vacancy_number", "position_category", "position_title")],
     sc[, c("vacancy_number", "score_overall")],
@@ -325,29 +325,29 @@ build_eligible_population <- function(data, band1_floor, config) {
     ))
     merged <- merged[!duplicated(merged$vacancy_number), , drop = FALSE]
   }
-
+  
   log_msg(sprintf(
     "Eligible population with a current '%s'-granularity score: %d vacancies (of %d eligible by status/flag).",
     config$granularity_for_bands, nrow(merged), nrow(elig_status)
   ))
-
+  
   q <- stats::quantile(merged$score_overall, probs = c(0.25, 0.75), na.rm = TRUE, names = FALSE)
   band3_floor <- q[1]
   band2_floor <- q[2]
-
+  
   merged$band <- with(merged, ifelse(
     score_overall >= band1_floor, "band_1", ifelse(
       score_overall >= band2_floor, "band_2", ifelse(
         score_overall >= band3_floor, "band_3", "band_4"
       ))))
-
+  
   cutoffs <- c(band_1_floor = band1_floor, band_2_floor = band2_floor, band_3_floor = band3_floor)
   log_msg(sprintf(
     "Band cutoffs (score_overall, '%s' granularity): band_1 >= %.4f | band_2 [%.4f, %.4f) | band_3 [%.4f, %.4f) | band_4 < %.4f",
     config$granularity_for_bands, band1_floor, band2_floor, band1_floor, band3_floor, band2_floor, band3_floor
   ))
   print(table(merged$band))
-
+  
   list(population = merged, cutoffs = cutoffs)
 }
 
@@ -366,17 +366,17 @@ draw_band_sample <- function(band_pool, target_n, category_cap_fraction) {
     }
     return(band_pool)
   }
-
+  
   # Deterministic pre-sort (by vacancy_number) before shuffling, so the
   # shuffle result depends only on the seed, never on incoming row order.
   band_pool <- band_pool[order(band_pool$vacancy_number), , drop = FALSE]
   shuffled_idx <- sample(seq_len(n_avail))
   pool <- band_pool[shuffled_idx, , drop = FALSE]
-
+  
   cap <- max(1L, ceiling(target_n * category_cap_fraction))
   cat_counts <- table(character(0))
   picked <- integer(0)
-
+  
   for (i in seq_len(nrow(pool))) {
     cat_i <- pool$position_category[i]
     cat_i_key <- if (is.na(cat_i) || !nzchar(cat_i)) "(blank)" else cat_i
@@ -386,7 +386,7 @@ draw_band_sample <- function(band_pool, target_n, category_cap_fraction) {
     cat_counts[cat_i_key] <- current + 1L
     if (length(picked) >= target_n) break
   }
-
+  
   if (length(picked) < target_n) {
     log_warn(sprintf(
       "Category cap (%.0f%% of %d = %d per category) left this band %d short of its target after one pass - relaxing the cap and filling the remainder from whatever's left.",
@@ -396,7 +396,7 @@ draw_band_sample <- function(band_pool, target_n, category_cap_fraction) {
     n_fill <- min(length(remaining_idx), target_n - length(picked))
     if (n_fill > 0) picked <- c(picked, remaining_idx[seq_len(n_fill)])
   }
-
+  
   pool[picked, , drop = FALSE]
 }
 
@@ -423,7 +423,7 @@ flag_reliability_subsample <- function(sample_df, config) {
   sample_df$is_reliability_check <- FALSE
   band_names <- c("band_1", "band_2", "band_3", "band_4")
   n_bands <- length(band_names)
-
+  
   # Every band gets at least a floor of 2 (if it has that many rows), then
   # the remainder from n_reliability_check is handed out one-at-a-time to
   # band_1 first, then band_2, etc. - bands 1-2 are where the decision
@@ -439,7 +439,7 @@ flag_reliability_subsample <- function(sample_df, config) {
     remainder <- remainder - 1L
     i <- i + 1L
   }
-
+  
   for (b in band_names) {
     idx <- which(sample_df$band == b)
     if (length(idx) == 0) next
@@ -450,7 +450,7 @@ flag_reliability_subsample <- function(sample_df, config) {
     take <- sample(idx, n_take)   # uses the same seeded RNG stream as the draw above - reproducible given random_seed
     sample_df$is_reliability_check[take] <- TRUE
   }
-
+  
   n_flagged <- sum(sample_df$is_reliability_check)
   log_msg(sprintf("Reliability subsample: %d of %d rows flagged (target was %d).", n_flagged, nrow(sample_df), config$n_reliability_check))
   sample_df
@@ -489,7 +489,7 @@ attach_job_text <- function(sample_df, config) {
 write_outputs <- function(sample_df, elig, snap, config) {
   n <- nrow(sample_df)
   sample_df$review_id <- sprintf("R%03d", seq_len(n))
-
+  
   # --- Crosswalk: the ONLY file that ties review_id back to vacancy_number,
   # band, and score. Named so its purpose (don't open until review is done)
   # is obvious without needing to read this script. ---------------------------
@@ -511,7 +511,7 @@ write_outputs <- function(sample_df, elig, snap, config) {
   names(crosswalk)[names(crosswalk) == "score_overall"] <- "score_at_draw_time"
   crosswalk_path <- file.path(snap$dir, "sample_key_CROSSWALK_do_not_open_until_review_complete.csv")
   utils::write.csv(crosswalk, crosswalk_path, row.names = FALSE)
-
+  
   # --- Blind review file: shuffled row order, no score/band/vacancy_number. --
   blind_order <- sample(seq_len(n))
   
@@ -525,8 +525,8 @@ write_outputs <- function(sample_df, elig, snap, config) {
   #                                      text for this vacancy
   #   label                                 - reviewer fills in: No-DS /
   #                                          Partial DS / DS
-  #   confidence                              - reviewer fills in: High /
-  #                                            Needs expert review
+  #   confidence                              - reviewer fills in: 1-5
+  #                                            (5 = most confident)
   #   justification                             - reviewer fills in: one line
   #                                              citing the rubric criterion
   #                                              that drove the call
@@ -537,24 +537,24 @@ write_outputs <- function(sample_df, elig, snap, config) {
   #                                                  from export_reliability_recheck.R)
   blind <- sample_df[blind_order, c("review_id", "position_title", "position_category", "job_text")]
   blind$label            <- ""   # No-DS / Partial DS / DS - filled in by the reviewer
-  blind$confidence         <- "" # High / Needs expert review
+  blind$confidence         <- "" # 1-5 (5 = most confident); read as a number by export_reliability_recheck.R
   blind$justification       <- "" # one line citing the rubric criterion that drove the call
   blind$reviewer              <- ""
   blind$date_reviewed          <- ""
   blind$reviewer_pass            <- 1L
   blind_path <- file.path(snap$dir, sprintf("review_blind_pass1_%s.csv", snap$stamp))
   utils::write.csv(blind, blind_path, row.names = FALSE)
-
+  
   log_msg(sprintf("Wrote crosswalk (%d rows): %s", nrow(crosswalk), crosswalk_path))
   log_msg(sprintf("Wrote blind review file, pass 1 (%d rows): %s", nrow(blind), blind_path))
-
+  
   list(crosswalk_path = crosswalk_path, blind_path = blind_path)
 }
 
 write_manifest <- function(snap, elig, sample_df, band1_floor, config, out_paths) {
   hashes <- vapply(snap$paths, hash_file, character(1))
   band_counts <- table(sample_df$band)
-
+  
   lines <- c(
     sprintf("=== Negative validation sample: manifest ==="),
     sprintf("Drawn: %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
@@ -573,7 +573,7 @@ write_manifest <- function(snap, elig, sample_df, band1_floor, config, out_paths
     "",
     "--- Allocation ---",
     paste(sprintf("%s target=%d drawn=%d", names(config$band_targets), config$band_targets,
-                   sapply(names(config$band_targets), function(b) band_counts[[b]] %||% 0L)),
+                  sapply(names(config$band_targets), function(b) band_counts[[b]] %||% 0L)),
           collapse = " | "),
     sprintf("category_cap_fraction: %.2f", config$category_cap_fraction),
     sprintf("n_reliability_check target: %d, actual: %d", config$n_reliability_check, sum(sample_df$is_reliability_check)),
@@ -612,21 +612,21 @@ write_manifest <- function(snap, elig, sample_df, band1_floor, config, out_paths
 main_draw_negative_sample <- function(config) {
   .log_con <<- setup_log_file(config)
   on.exit(if (!is.null(.log_con)) close(.log_con), add = TRUE)
-
+  
   log_msg(sprintf("=== draw_negative_validation_sample.R run started: %s ===", Sys.time()))
-
+  
   snap <- snapshot_inputs(config)
   data <- load_snapshotted_data(snap)
   band1_floor <- load_validation_floor(snap, config)
   elig <- build_eligible_population(data, band1_floor, config)
-
+  
   sample_df <- draw_full_sample(elig, config)
   sample_df <- flag_reliability_subsample(sample_df, config)
   sample_df <- attach_job_text(sample_df, config)
-
+  
   out_paths <- write_outputs(sample_df, elig, snap, config)
   write_manifest(snap, elig, sample_df, band1_floor, config, out_paths)
-
+  
   log_msg(sprintf(
     "Done. %d vacancies sampled across %d bands. Snapshot + outputs in: %s",
     nrow(sample_df), length(unique(sample_df$band)), snap$dir
