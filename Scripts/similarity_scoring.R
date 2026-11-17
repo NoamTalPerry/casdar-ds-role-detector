@@ -103,7 +103,7 @@ CONFIG <- list(
   # Plain-text, itemized, three sections - see parse_master_template() for the
   # exact expected format and MASTER_TEMPLATE_FORMAT_EXAMPLE below for a
   # ready-to-copy stub. Lives under Data/ alongside the other reference files
-  # Script 1 already reads from there (ras_fp_files.csv etc.). Deliberately
+  # Script 1 already reads from there (server_file_mapping.csv etc.). Deliberately
   # NOT duplicated for validation_mode - see the validation_mode comment above.
   master_template_path = file.path("..", "Data", "master_template.txt"),
   
