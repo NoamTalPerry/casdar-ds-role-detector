@@ -359,7 +359,7 @@ CONFIG <- list(
   #      user-controlled below rather than hardcoded, since in practice
   #      they've turned out to be large buckets, not rare edge cases:
   #        - category_filter_include_no_server_mapping: no row at all for
-  #          the PDF in ras_fp_files.csv (e.g. PDFs newer than the
+  #          the PDF in server_file_mapping.csv (e.g. PDFs newer than the
   #          mapping export's coverage window have no row by construction).
   #        - category_filter_include_no_recruitment_match: a VACANCY_NUMBER
   #          exists, but no row for it in the recruitment export (e.g. the
@@ -372,7 +372,7 @@ CONFIG <- list(
   #      sense once the HR-data gap driving these buckets is well
   #      understood, not as a blind default.
   #      A third such case - a blank VACANCY_NUMBER on an existing
-  #      ras_fp_files.csv row (a known single-row case observed during
+  #      server_file_mapping.csv row (a known single-row case observed during
   #      development) - is NOT separately configurable; it always defaults
   #      to include, since it has so far been a single-row edge case rather
   #      than a meaningful bucket.
@@ -391,15 +391,16 @@ CONFIG <- list(
   # system from the "vacancy_NNN" the repost-grouping regex above extracts
   # from PDF filenames; the two must never be conflated (see the note in
   # build_hr_lookup() below):
-  #   PDF filename (SERVER_FILENAME) --[ras_fp_files.csv]--> VACANCY_NUMBER
+  #   PDF filename (SERVER_FILENAME) --[server_file_mapping.csv]--> VACANCY_NUMBER
   #     --[join]--> Job Reference --[recruitment export]--> Position Category
   filter_by_category = TRUE,
   category_filter_include_no_server_mapping     = TRUE,  # see point 2 above
   category_filter_include_no_recruitment_match  = TRUE,  # see point 2 above
   hr_data_dir               = file.path("..", "Data"),
-  server_file_mapping_path  = file.path("..", "Data", "ras_fp_files.csv"),
-  # NOTE: point this at your own HR recruitment-system export - the filename
-  # below is a generic placeholder, not the name of a real file in this repo.
+  # NOTE: server_file_mapping.csv and recruitment_export.csv are generic
+  # placeholder names, not real files in this repo - point these at your own
+  # HR exports. Required columns are listed in build_hr_lookup().
+  server_file_mapping_path  = file.path("..", "Data", "server_file_mapping.csv"),
   recruitment_data_path     = file.path("..", "Data", "recruitment_export.csv"),
   # Categories judged (from skimming job/position titles) most likely to
   # contain data stewardship roles in our HR data. "Researcher" was
@@ -605,7 +606,7 @@ extract_relevant_pdf_text <- function(pdf_path, config) {
 
 # ------------------------------------------------------------------------------
 # Helper: fallback job-reference scraper, used only when the HR mapping
-# (ras_fp_files.csv) has no usable job reference for a PDF - either no row
+# (server_file_mapping.csv) has no usable job reference for a PDF - either no row
 # at all (e.g. the mapping export's coverage window ends before the newest
 # PDFs), or a row exists but VACANCY_NUMBER on it is blank. Operates on the
 # ALREADY-EXTRACTED text used for the LLM prompt (job_text) - never re-opens
@@ -1288,10 +1289,10 @@ read_hr_csv <- function(path) {
 # ------------------------------------------------------------------------------
 # Helper: fetch a column from an HR data.frame by name, case-insensitively
 # and whitespace-normalized, rather than requiring an exact-case hardcoded
-# match. A real header-casing mismatch ("Position category" vs "Position
-# Category") already broke an earlier version of the category filter -
-# every HR column lookup goes through this now so that class of bug can't
-# recur for any of the columns used here. Errors loudly (listing the
+# match. A header-casing mismatch ("Position category" vs "Position
+# Category") is a realistic failure mode for HR exports, so every HR column
+# lookup goes through this to rule that class of bug out for every column
+# used here. Errors loudly (listing the
 # columns actually present) on no match or an ambiguous match, rather than
 # silently returning NULL and failing somewhere downstream and confusingly.
 # ------------------------------------------------------------------------------
@@ -1354,7 +1355,7 @@ dedup_concat_field <- function(values, sep = "; ") {
 # pre-joining per file and re-splitting later would risk breaking on any
 # field value that itself happens to contain "; ".
 #
-# NOTE on the two numbering systems: ras_fp_files.csv's VACANCY_NUMBER is
+# NOTE on the two numbering systems: server_file_mapping.csv's VACANCY_NUMBER is
 # the recruitment-system reference, joined here to the recruitment export's
 # "Job Reference" column. This is a DIFFERENT number from the "vacancy_NNN"
 # embedded in the PDF filename that get_vacancy_group_key() uses for repost
@@ -1432,7 +1433,7 @@ build_hr_lookup <- function(config) {
 # per-SERVER_FILENAME list built by build_hr_lookup(). Tries an exact
 # basename match first, then falls back to matching without file extension
 # (in case SERVER_FILENAME in the source data omits ".pdf"). Returns NULL if
-# no row at all exists for this PDF in ras_fp_files.csv - callers decide how
+# no row at all exists for this PDF in server_file_mapping.csv - callers decide how
 # to treat that (the filter treats it as RECALL-BIASED include; enrichment
 # treats it as "nothing to add").
 # ------------------------------------------------------------------------------
@@ -2042,7 +2043,7 @@ main <- function(config) {
   # enrichment columns).
   hr_lookup <- NULL
   if (isTRUE(config$filter_by_category) || isTRUE(config$add_hr_status_columns)) {
-    log_msg("Loading HR data (ras_fp_files.csv + recruitment export)...")
+    log_msg("Loading HR data (server_file_mapping.csv + recruitment export)...")
     hr_lookup <- build_hr_lookup(config)
   }
   
