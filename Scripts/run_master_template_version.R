@@ -15,7 +15,7 @@
 #          Jul-Aug 2026; reviewed and verified by the author.
 #
 # Purpose:
-#   Scores BOTH the Cambridge sample and the external validation set under
+#   Scores BOTH the main-corpus sample and the external validation set under
 #   a candidate master template, then (optionally) runs the full downstream
 #   analysis chain - threshold sweep, item-level coverage by label,
 #   triangulation - all landing in ONE dedicated, versioned output folder.
@@ -37,11 +37,10 @@
 # Data scope (what this repository does and does not include):
 #   This repository contains CODE ONLY. It does not include job-ad PDFs,
 #   the master template, any scored output, or any sampling snapshot.
-#   CONFIG_VERSION$cambridge_vacancy_numbers below is left empty
-#   (character(0), meaning "score the whole corpus") rather than the real
-#   subsample this project actually used for a given version run - fill it
-#   in with your own vacancy_number subset, or leave it empty to score
-#   everything.
+#   CONFIG_VERSION$main_vacancy_numbers below is left empty
+#   (character(0), meaning "score the whole corpus") - fill it in with your
+#   own vacancy_number subset for a smaller trial run, or leave it empty to
+#   score everything.
 #
 # Why full chaining is safe: similarity_scoring.R, analyze_item_coverage.R,
 # run_threshold_analysis.R, and triangulate_item_coverage.R each define a
@@ -102,7 +101,7 @@ CONFIG_VERSION <- list(
   # Short, filename-safe label for this version - becomes the versioned
   # output folder's name. e.g. "v2_adjacent_role", "v3_dropped_items".
   version_name = "v2_example_variant",
-
+  
   # Appended (via apply_version_suffix(), the same mechanism used
   # identically across every script in this chain) to every CSV/PNG this
   # run produces, so files pulled out of their version folder and compared
@@ -119,10 +118,10 @@ CONFIG_VERSION <- list(
   # with different threshold_score_specs against the SAME already-scored
   # template).
   version_suffix = NULL,
-
+  
   # The candidate template being tested this run.
   candidate_template_path = file.path("..", "Data", "master_template_v2.txt"),
-
+  
   # Any similarity_scoring.R CONFIG fields to override for BOTH calls this
   # run - e.g. list(use_adjacent_pool = TRUE, apply_adjacent_pool_to_responsibilities = FALSE)
   # for an ADJACENT_ROLE-toggle version. Leave as list() for a version
@@ -130,24 +129,24 @@ CONFIG_VERSION <- list(
   # reworded) rather than a scoring-behavior toggle - nothing else in this
   # script needs to know or care which kind of version this is.
   sim_config_overrides = list(),
-
-  # Which Cambridge vacancy_numbers to score under the candidate template.
+  
+  # Which main-corpus vacancy_numbers to score under the candidate template.
   # Leave empty (character(0)) to score the WHOLE main corpus - expensive,
   # only do this once a sample-scale version has already looked worthwhile.
   # For a smaller trial run, supply your own subset here, e.g.
   # c("EXAMPLE1", "EXAMPLE2", "EXAMPLE3").
-  cambridge_vacancy_numbers = character(0),
-
+  main_vacancy_numbers = character(0),
+  
   granularity_modes = c("document", "section", "item"),
-
+  
   # Root under which every version gets its own dedicated subfolder -
   # nothing here ever touches the live Output/Validation_Output trees.
   versions_root = file.path("..", "Output", "master_template_versions"),
-
+  
   # --- Downstream analysis chaining -------------------------------------------
   run_downstream_threshold_analysis = TRUE,
   run_downstream_item_coverage = TRUE,
-
+  
   # For threshold analysis: the ORIGINAL historical draw snapshot (unchanged
   # by which template version is being tested - band weights depend only on
   # how the sample was actually drawn, never on what you score them with
@@ -156,32 +155,37 @@ CONFIG_VERSION <- list(
   # draw_negative_validation_sample.R.
   snapshot_dir = file.path("..", "Output", "sampling_snapshots",
                            "hard_negative_sample_EXAMPLE_DATE"),
-
+  
   # Which score definition(s) to sweep for this version - same shape as
-  # run_threshold_analysis.R's own score_specs, minus name/scores_path/
+  # run_threshold_analysis.R's own score_specs, minus scores_path/
   # validation_scores_path (auto-filled to point at this version's own
-  # output, and auto-named from granularity+score_column if not given).
+  # output). 'name' is optional - auto-named from granularity+score_column
+  # if not given. Defaults match run_threshold_analysis.R's own score_specs.
   threshold_score_specs = list(
-    list(granularity = "section", score_column = "score_skills")
+    list(name = "document", granularity = "document", score_column = "score_overall"),
+    list(name = "section",  granularity = "section",  score_column = "score_overall"),
+    list(name = "item",     granularity = "item",     score_column = "score_overall"),
+    list(name = "section_responsibilities", granularity = "section", score_column = "score_responsibilities"),
+    list(name = "section_skills",           granularity = "section", score_column = "score_skills")
   ),
-
+  
   # For item coverage: which label(s) define each group - same shape as
   # run_item_coverage_by_label.R's own CONFIG_WRAPPER$groups. Needs exactly
   # 2 groups unless item_coverage_primary_positive_group/negative_group
   # (below) are also set explicitly.
   item_coverage_groups = list(
-    cambridge_ds   = c("DS"),
-    cambridge_partial = c("Partial DS"),
-    cambridge_nods = c("No-DS")
+    main_ds   = c("DS"),
+    main_partial = c("Partial DS"),
+    main_nods = c("No-DS")
   ),
-  item_coverage_primary_positive_group = "cambridge_ds",   # auto-derived from item_coverage_groups if exactly 2 groups and this is left NULL
-  item_coverage_primary_negative_group = "cambridge_nods",
-
+  item_coverage_primary_positive_group = "main_ds",   # auto-derived from item_coverage_groups if exactly 2 groups and this is left NULL
+  item_coverage_primary_negative_group = "main_nods",
+  
   # Only needed if run_downstream_threshold_analysis is FALSE (otherwise
   # the wide export from that step is used automatically - see main
   # loop). Needs 'vacancy_number' and 'label' columns.
   labeled_data_path = NULL,
-
+  
   log_to_file = TRUE,
   log_dir     = file.path("..", "Output", "logs")
 )
@@ -229,64 +233,64 @@ run_version <- function(config) {
   wrapper_log_con <- setup_log_file(config)
   .log_con <<- wrapper_log_con
   on.exit(if (!is.null(wrapper_log_con)) close(wrapper_log_con), add = TRUE)
-
+  
   log_msg(sprintf("=== run_master_template_version.R wrapper started: %s ===", Sys.time()))
   log_msg(sprintf("Version: %s", config$version_name))
-
+  
   if (!nzchar(trimws(config$version_name %||% ""))) stop("CONFIG_VERSION$version_name is required and cannot be empty.")
   if (!file.exists(config$candidate_template_path)) stop(sprintf("candidate_template_path not found: %s", config$candidate_template_path))
   if (isTRUE(config$run_downstream_threshold_analysis) && is.null(config$snapshot_dir)) {
     stop("snapshot_dir is required when run_downstream_threshold_analysis is TRUE.")
   }
-
+  
   if (!nzchar(trimws(config$version_suffix %||% ""))) {
     config$version_suffix <- config$version_name
     log_msg(sprintf("CONFIG_VERSION$version_suffix not set - defaulting to version_name ('%s').", config$version_suffix))
   } else {
     log_msg(sprintf("version_suffix: %s", config$version_suffix))
   }
-
+  
   version_dir <- file.path(config$versions_root, config$version_name)
   prepare_version_dir(version_dir)
-
+  
   # --- Snapshot + hash the candidate template - the provenance record ------
   template_snapshot_path <- file.path(version_dir, "master_template_snapshot.txt")
   file.copy(config$candidate_template_path, template_snapshot_path, overwrite = TRUE)
   template_hash <- digest::digest(file = config$candidate_template_path, algo = "sha256")
   log_msg(sprintf("Snapshotted candidate template to %s (SHA-256: %s)", template_snapshot_path, template_hash))
-
+  
   # Base (unsuffixed) filenames - similarity_scoring.R appends
   # CONFIG$version_suffix itself, inside resolve_paths_for_mode_similarity_scoring(),
   # the same way every other script in this chain suffixes its own output.
   # The RESOLVED (suffixed) equivalents below are computed here purely for
   # THIS wrapper's own downstream references (threshold analysis specs,
-  # item-coverage calls) - never re-assigned back onto cam_config/
+  # item-coverage calls) - never re-assigned back onto main_config/
   # val_config, so the suffix is never applied twice.
-  cambridge_scores_base        <- file.path(version_dir, "similarity_scores.csv")
-  cambridge_item_matches_base  <- file.path(version_dir, "similarity_item_matches.csv")
+  main_scores_base        <- file.path(version_dir, "similarity_scores.csv")
+  main_item_matches_base  <- file.path(version_dir, "similarity_item_matches.csv")
   validation_scores_base       <- file.path(version_dir, "validation_similarity_scores.csv")
   validation_item_matches_base <- file.path(version_dir, "validation_similarity_item_matches.csv")
-
-  cambridge_scores_path        <- apply_version_suffix(cambridge_scores_base, config$version_suffix)
-  cambridge_item_matches_path  <- apply_version_suffix(cambridge_item_matches_base, config$version_suffix)
+  
+  main_scores_path        <- apply_version_suffix(main_scores_base, config$version_suffix)
+  main_item_matches_path  <- apply_version_suffix(main_item_matches_base, config$version_suffix)
   validation_scores_path       <- apply_version_suffix(validation_scores_base, config$version_suffix)
   validation_item_matches_path <- apply_version_suffix(validation_item_matches_base, config$version_suffix)
-
-  # --- Step 1: Cambridge-side scoring ------------------------------------------
-  log_msg("--- Scoring Cambridge sample under the candidate template ---")
-  cam_config <- base_sim_config
-  cam_config$validation_mode <- FALSE
-  cam_config$master_template_path <- config$candidate_template_path
-  for (nm in names(config$sim_config_overrides)) cam_config[[nm]] <- config$sim_config_overrides[[nm]]
-  cam_config$granularity_modes <- config$granularity_modes
-  cam_config$only_vacancy_numbers <- config$cambridge_vacancy_numbers
-  cam_config$scores_path <- cambridge_scores_base
-  cam_config$item_matches_path <- cambridge_item_matches_base
-  cam_config$version_suffix <- config$version_suffix
-  cam_config$log_to_file <- FALSE
-  main_similarity_scoring(cam_config)
+  
+  # --- Step 1: main-corpus scoring ---------------------------------------------
+  log_msg("--- Scoring main-corpus sample under the candidate template ---")
+  main_config <- base_sim_config
+  main_config$validation_mode <- FALSE
+  main_config$master_template_path <- config$candidate_template_path
+  for (nm in names(config$sim_config_overrides)) main_config[[nm]] <- config$sim_config_overrides[[nm]]
+  main_config$granularity_modes <- config$granularity_modes
+  main_config$only_vacancy_numbers <- config$main_vacancy_numbers
+  main_config$scores_path <- main_scores_base
+  main_config$item_matches_path <- main_item_matches_base
+  main_config$version_suffix <- config$version_suffix
+  main_config$log_to_file <- FALSE
+  main_similarity_scoring(main_config)
   .log_con <<- wrapper_log_con   # similarity_scoring.R's main_similarity_scoring() unconditionally reassigns .log_con on every call
-
+  
   # --- Step 2: external validation-side scoring --------------------------------
   log_msg("--- Scoring external validation set under the candidate template ---")
   val_config <- base_sim_config
@@ -300,10 +304,10 @@ run_version <- function(config) {
   val_config$log_to_file <- FALSE
   main_similarity_scoring(val_config)
   .log_con <<- wrapper_log_con
-
+  
   labeled_data_path <- config$labeled_data_path
   threshold_output_dir <- NULL
-
+  
   # --- Step 3 (optional): threshold analysis -----------------------------------
   if (isTRUE(config$run_downstream_threshold_analysis)) {
     log_msg("--- Running threshold analysis for this version ---")
@@ -315,28 +319,28 @@ run_version <- function(config) {
     threshold_config$score_specs <- lapply(config$threshold_score_specs, function(spec) {
       spec_name <- if (!is.null(spec$name)) spec$name else paste0(spec$granularity, "_", spec$score_column)
       list(name = spec_name, granularity = spec$granularity, score_column = spec$score_column,
-           scores_path = cambridge_scores_path, validation_scores_path = validation_scores_path)
+           scores_path = main_scores_path, validation_scores_path = validation_scores_path)
     })
     threshold_config$version_suffix <- config$version_suffix
     threshold_config$log_to_file <- FALSE
     main_threshold_analysis(threshold_config)
     .log_con <<- wrapper_log_con
-    labeled_data_path <- apply_version_suffix(file.path(threshold_output_dir, "cambridge_labeled_with_all_scores.csv"), config$version_suffix)
+    labeled_data_path <- apply_version_suffix(file.path(threshold_output_dir, "main_labeled_with_all_scores.csv"), config$version_suffix)
   }
-
+  
   # --- Step 4 (optional): item-level coverage, both sides, then triangulate ---
   if (isTRUE(config$run_downstream_item_coverage)) {
     if (is.null(labeled_data_path)) {
       stop("run_downstream_item_coverage is TRUE but no labeled_data_path is available - either enable run_downstream_threshold_analysis (its wide export is used automatically), or set CONFIG_VERSION$labeled_data_path directly.")
     }
     item_cov_dir <- file.path(version_dir, "item_coverage")
-
-    log_msg("--- Running item coverage by label (Cambridge side) ---")
+    
+    log_msg("--- Running item coverage by label (main-corpus side) ---")
     item_cov_config <- list(
       labeled_data_path = labeled_data_path,
       groups = config$item_coverage_groups,
       filter_output_dir = file.path(item_cov_dir, "groups"),
-      item_matches_path = cambridge_item_matches_path,
+      item_matches_path = main_item_matches_path,
       summary_output_dir = item_cov_dir,
       match_rate_thresholds = base_item_coverage_config$match_rate_thresholds,
       make_plots = TRUE,
@@ -346,7 +350,7 @@ run_version <- function(config) {
     )
     group_paths <- run_wrapper(item_cov_config)
     .log_con <<- wrapper_log_con
-
+    
     log_msg("--- Running item coverage for the external validation set ---")
     val_cov_summary_base <- file.path(item_cov_dir, "validation_item_coverage_summary.csv")
     val_cov_plot_base     <- file.path(item_cov_dir, "validation_item_coverage_plot.png")
@@ -360,7 +364,7 @@ run_version <- function(config) {
     main_analyze_item_coverage(val_cov_config)
     .log_con <<- wrapper_log_con
     val_cov_summary_path <- apply_version_suffix(val_cov_summary_base, config$version_suffix)   # matches what analyze_item_coverage.R actually wrote
-
+    
     log_msg("--- Triangulating coverage across groups ---")
     primary <- resolve_primary_groups(config)
     triangulate_config <- base_triangulate_config
@@ -374,7 +378,7 @@ run_version <- function(config) {
     main_triangulate_item_coverage(triangulate_config)
     .log_con <<- wrapper_log_con
   }
-
+  
   # --- Manifest -----------------------------------------------------------------
   manifest_path <- file.path(version_dir, "manifest.txt")
   lines <- c(
@@ -387,11 +391,11 @@ run_version <- function(config) {
     sprintf("Template snapshot copy: %s", template_snapshot_path),
     sprintf("sim_config_overrides: %s", if (length(config$sim_config_overrides) == 0) "(none - template-content-only version)" else paste(sprintf("%s=%s", names(config$sim_config_overrides), unlist(config$sim_config_overrides)), collapse = ", ")),
     sprintf("granularity_modes: %s", paste(config$granularity_modes, collapse = ", ")),
-    sprintf("Cambridge vacancy_numbers requested: %s", if (length(config$cambridge_vacancy_numbers) == 0) "ALL (full corpus)" else sprintf("%d specific vacancies", length(config$cambridge_vacancy_numbers))),
+    sprintf("Main-corpus vacancy_numbers requested: %s", if (length(config$main_vacancy_numbers) == 0) "ALL (full corpus)" else sprintf("%d specific vacancies", length(config$main_vacancy_numbers))),
     "",
     "--- Everything this run produced lives under this same folder ---",
     sprintf("Version folder: %s", version_dir),
-    sprintf("  similarity_scores.csv / similarity_item_matches.csv           (Cambridge side)"),
+    sprintf("  similarity_scores.csv / similarity_item_matches.csv           (main-corpus side)"),
     sprintf("  validation_similarity_scores.csv / validation_similarity_item_matches.csv (external side)"),
     if (isTRUE(config$run_downstream_threshold_analysis)) "  threshold_analysis/   (weighted sweep, AUC summary, plots)" else "  threshold_analysis/   NOT RUN this run",
     if (isTRUE(config$run_downstream_item_coverage)) "  item_coverage/        (per-group + validation coverage summaries, triangulated comparison)" else "  item_coverage/        NOT RUN this run",
@@ -409,7 +413,7 @@ run_version <- function(config) {
   )
   writeLines(lines, manifest_path)
   log_msg(sprintf("Wrote manifest: %s", manifest_path))
-
+  
   log_msg(sprintf("Done. Everything for this version is under: %s", version_dir))
   invisible(list(version_dir = version_dir, manifest_path = manifest_path))
 }
