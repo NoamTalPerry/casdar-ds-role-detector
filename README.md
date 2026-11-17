@@ -72,18 +72,17 @@ These scripts expect to live in their own subfolder, with sibling data/output fo
 
 ```
 your-project-root/
-├── Scripts/                        
-│   ├── extract_job_criteria.R
-│   ├── run_validation_batch.R
-│   ├── similarity_scoring.R
-│   └── ...                          (the rest of the .R files)
-├── Data/                             <- your master_template.txt, HR export, etc. (not in this repo)
-├── PDFs/                              <- your main-corpus job-ad PDFs (not in this repo)
-├── Validation_PDFs/                    <- your external validation job-ad PDFs (not in this repo)
-├── TXTs/, TXTs_extracted/, TXTs_merged/            <- created by extract_job_criteria.R
-├── Validation_TXTs/, ..._extracted/, ..._merged/    <- created by run_validation_batch.R
-├── Output/                                           <- created by similarity_scoring.R and downstream scripts
-└── Validation_Output/                                 <- created by the validation-side equivalents
+├── Scripts/                                  <- the .R files in this repo; run them from here
+├── templates/                                <- earlier master template versions (in this repo)
+├── Data/                                     <- your master_template.txt, HR exports, etc. (not in this repo)
+├── PDFs/                                     <- your main-corpus job-ad PDFs (not in this repo)
+├── Validation_PDFs/                          <- your external validation job-ad PDFs (not in this repo)
+├── TXTs/, TXTs_extracted/, TXTs_merged/      <- created by extract_job_criteria.R
+├── Validation_TXTs/, ..._extracted/, ..._merged/   <- created by run_validation_batch.R
+├── Output/                                   <- vacancy_status.csv, scores and every analysis output
+│   └── logs/                                 <- run logs from every script, plus api_usage_log.csv
+└── Validation_Output/                        <- validation-side outputs
+    └── logs/                                 <- validation-side run logs
 ```
 
 **Typical run order**, starting from your own PDFs and master template:
