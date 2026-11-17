@@ -185,12 +185,13 @@ CONFIG <- list(
     list(name = "section_skills",           granularity = "section", score_column = "score_skills")
     
     # Example: same score_skills definition, but scored under a DIFFERENT
-    # master template (e.g. master_template_v2.txt with the ADJACENT_ROLE
-    # pool toggled on) - point at wherever THAT run's output went, instead
-    # of the frozen snapshot / current live file every other spec uses:
-    # , list(name = "section_skills_v2", granularity = "section", score_column = "score_skills",
-    #        scores_path = file.path("..", "Output", "similarity_scores_v2.csv"),
-    #        validation_scores_path = file.path("..", "Validation_Output", "validation_similarity_scores_v2.csv"))
+    # master template (e.g. ../templates/v3_adjrole.txt with the ADJACENT_ROLE
+    # pool toggled on, scored by run_master_template_version.R's defaults) -
+    # point at wherever THAT run's output went, instead of the frozen
+    # snapshot / current live file every other spec uses:
+    # , list(name = "section_skills_v3", granularity = "section", score_column = "score_skills",
+    #        scores_path = file.path("..", "Output", "master_template_versions", "v3_adjrole", "similarity_scores_v3_adjrole.csv"),
+    #        validation_scores_path = file.path("..", "Output", "master_template_versions", "v3_adjrole", "validation_similarity_scores_v3_adjrole.csv"))
   ),
   
   output_dir = file.path("..", "Output", "threshold_analysis"),
