@@ -1,0 +1,79 @@
+RESPONSIBILITIES
+----------------
+1.	Provide advice, guidance and consultancy to researchers and other stakeholders on research data management (RDM) throughout the research data lifecycle.
+2.	Support researchers in developing, writing and implementing data management plans (DMPs), including advising on funder and institutional requirements.
+3.	Develop, review and maintain institutional policies, procedures, standards and guidelines for data management, data quality, data protection and data governance.
+4.	Design, develop and deliver training, workshops, presentations and resources on data management and related topics (e.g. RDM, FAIR, open science, data protection).
+5.	Promote and support the adoption and implementation of FAIR (Findable, Accessible, Interoperable, Reusable) data principles.
+6.	Promote and support open science, open research and open data-sharing practices, including advocacy for a cultural shift towards openness.
+7.	Manage and support data curation activities, including cleaning, structuring and preparing data and datasets for use, storage or publication.
+8.	Create, apply and maintain metadata and documentation standards to support data discovery, quality, interoperability and reuse.
+9.	Support and advise on data access requests, data submissions, and data-sharing agreements with internal and external data providers or partners.
+10.	Support compliance with data protection and information governance requirements (e.g. GDPR), including support with Data Protection Impact Assessments (DPIAs) and related legal/ethical documentation.
+11.	Contribute to the design, implementation and maintenance of data infrastructure, systems and data stewardship tools (e.g. repositories, catalogues, portals, platforms).
+12.	Undertake data audits, quality checks and validation processes to monitor and maintain data integrity.
+13.	Facilitate data linkage, integration and coordinated access to datasets across internal teams, systems or external organisations.
+14.	Develop, maintain and improve data catalogues, repositories, registers or portals, and support the discoverability, dissemination and reuse of data related outputs.
+15.	Contribute specialist input to research proposals, business cases, funding applications, or ethics applications involving the creation, collection or management of data.
+16.	Represent the organisation in relevant external networks, working groups, conferences and community initiatives related to data management and stewardship.
+17.	Provide technical guidance, troubleshooting and support for research data systems and infrastructure, including liaising with specialist teams where necessary.
+18.	Support the planning and coordination of data storage, sharing, retention, archiving and long-term preservation of data.
+19.	Contribute to the development and dissemination of best practice, standards and knowledge-sharing in data management, through publications, technical reports, presentations or community fora.
+20.	Support the development of organisational data strategy, roadmaps, or maturity assessments, including systematic audits of the scale and nature of datasets.
+21.	Coordinate, supervise or support the work of other data stewards or staff engaged in data management activities.
+22.	Keep up to date with emerging technologies, tools, standards, regulations and best practice in data management and stewardship, and apply this awareness to the role.
+23.	Respond to enquiries from a range of users (from students to senior staff) regarding data, data management or data-related systems.
+24.	Manage or support the acquisition, ingestion and provisioning of new datasets, including assessing utility, quality and completeness of incoming data/content.
+25.	Ensure appropriate governance and compliance is followed for access to sensitive or domain-specific regulated data in line with relevant sector standards.
+26.	Support public, patient or wider stakeholder engagement activities that promote transparent, secure and trustworthy use of data.
+27.	Mint and maintain Digital Object Identifiers (DOIs) or similar persistent identifiers, ensuring compliance with relevant minimum metadata requirements.
+
+SKILLS - ESSENTIAL
+-------------------
+1.	Knowledge and practical experience of research data management (RDM) principles, processes and the research data lifecycle.
+2.	Knowledge and practical application of FAIR (Findable, Accessible, Interoperable, Reusable) data principles.
+3.	Experience of data curation, including the development, creation and management of metadata.
+4.	Knowledge of data governance and information governance frameworks, and experience of data protection/confidentiality compliance (e.g. GDPR).
+5.	Experience working with sensitive, confidential, large and/or complex datasets within an information governance or trusted research environment framework.
+6.	Experience of database management systems, including database design, query and report design (e.g. relational databases, SQL).
+7.	Experience of data manipulation, cleaning, harmonisation and quality assurance using a scripting or programming language (e.g. Python, R, SQL).
+8.	Ability to gather, analyse, interpret and report on complex data, and to translate stakeholder or researcher needs into technical data requirements.
+9.	Ability to provide advice, guidance and consultancy to researchers and other stakeholders on data management practices, tools, and compliance requirements.
+10.	Ability to communicate technical or data-related concepts clearly to non-technical audiences, in both written and verbal form.
+11.	Knowledge of data documentation standards, and experience producing and maintaining process, workflow or system documentation.
+12.	Knowledge of the legal, ethical and regulatory requirements relevant to the management, sharing and protection of data (e.g. data protection legislation, copyright, licensing, IPR).
+13.	Experience of managing or supporting data collection, ingestion, acquisition and provisioning processes.
+14.	Knowledge of relevant data management systems and approaches, including local and cloud databases, storage platforms, data modelling and data warehousing.
+15.	Knowledge of research data repositories, catalogues and research asset management tools.
+16.	Experience of working with large, complex and/or rapidly changing datasets in a research or operational environment.
+17.	Experience or knowledge of open science, open research and open data-sharing practice.
+18.	Ability to work collaboratively with researchers and data owners to define, elicit and implement data-related requirements.
+19.	Relevant professional experience in data management, data stewardship, data science or a related field.
+20.	Experience developing and implementing data management plans (DMPs) and/or data governance frameworks.
+21.	Knowledge of and experience with electronic lab notebooks or similar research data/laboratory infrastructure systems.
+22.	Experience of data linkage and integration across systems or datasets, including relevant query/report design.
+23.	Basic knowledge of version control systems (e.g. Git) and the source code control process.
+24.	Basic knowledge of ontologies and their application for data annotation.
+25.	Experience developing standard operating procedures for data-related processes.
+26.	Effective management of digital objects and content (e.g. project data, documents, records).
+27.	Knowledge in one or more specialist data science areas, such as statistical modelling, artificial intelligence, machine learning, data analytics, data engineering or data visualisation.
+28.	Programming or scripting knowledge for data analysis (e.g. Python, R, SPARQL), including proficiency in shell/UNIX environments.
+
+SKILLS - DESIRABLE
+-------------------
+1.	Experience of applying for data from external data providers, including obtaining approvals and data-sharing agreements.
+2.	Knowledge and experience of using cloud platform technologies (e.g. GCP, Kubernetes) or of computer simulation/modelling.
+3.	Experience with metadata schemas and standards (e.g. Dublin Core, METS, MODS, PREMIS, CSDGM).
+4.	Experience using or supporting data analysis software, and familiarity with digital preservation theory and principles.
+5.	Experience with research data repositories and platforms (e.g. Figshare, Zenodo, Dataverse, DataCite, DSpace, institutional repositories).
+6.	Experience working with high-performance computing (HPC) centres, or other large-scale computational or data storage services.
+7.	Knowledge regarding knowledge graphs, semantics and ontologies.
+8.	Experience with wiki-based or collaborative knowledge platforms (e.g. MediaWiki, Wikibase) and associated web technologies.
+9.	Expertise in designing and managing Extract, Transform, Load (ETL) workflows for data migration and warehousing, and general data integration/analysis skills.
+10.	Knowledge of large language models, machine learning and AI within a relevant application context.
+11.	Experience conducting regular data audits and validation checks to ensure data quality and integrity.
+12.	Knowledge of ethical guidelines, legal considerations and awareness of legal issues (e.g. data protection, freedom of information) relevant to research data management.
+13.	Experience working on international research projects and collaborations, and participation in community efforts to develop and promote data stewardship standards and best practice.
+14.	Experience providing guidance and support on data management practices in an academic or research environment.
+15.	Experience developing geospatial, geodata, or other domain-specific data infrastructure (e.g. data cubes).
+16.	Experience with source code/version hosting environments (e.g. GitLab) for collaborative technical projects.

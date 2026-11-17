@@ -1,7 +1,8 @@
 # ==============================================================================
 # CaSDaR pipeline .gitignore
 #
-# This repository is code-only (see README's "What this repository contains").
+# This repository holds code plus the earlier master template versions in
+# templates/ (see README's "What this repository contains").
 # Every script in this pipeline reads/writes real job-ad text, HR-derived
 # data, or scored output relative to the folder these scripts live in - none
 # of that should ever be committed here, even accidentally by someone running

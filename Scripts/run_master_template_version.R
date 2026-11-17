@@ -98,9 +98,15 @@ base_triangulate_config <- CONFIG
 source("run_item_coverage_by_label.R")   # brings in main_analyze_item_coverage(), run_wrapper(), and base_item_coverage_config as side effects
 
 CONFIG_VERSION <- list(
+  # The defaults below (version_name, candidate_template_path and
+  # sim_config_overrides) reproduce this project's run "v3_adjrole" from the
+  # file in ../templates/. templates/README.md lists the file and settings
+  # every earlier run used; to test your own variant, point
+  # candidate_template_path at your file and set your own version_name.
+  #
   # Short, filename-safe label for this version - becomes the versioned
-  # output folder's name. e.g. "v2_adjacent_role", "v3_dropped_items".
-  version_name = "v2_example_variant",
+  # output folder's name. e.g. "v3_adjrole", "v8_dropped_items".
+  version_name = "v3_adjrole",
   
   # Appended (via apply_version_suffix(), the same mechanism used
   # identically across every script in this chain) to every CSV/PNG this
@@ -120,7 +126,7 @@ CONFIG_VERSION <- list(
   version_suffix = NULL,
   
   # The candidate template being tested this run.
-  candidate_template_path = file.path("..", "Data", "master_template_v2.txt"),
+  candidate_template_path = file.path("..", "templates", "v3_adjrole.txt"),
   
   # Any similarity_scoring.R CONFIG fields to override for BOTH calls this
   # run - e.g. list(use_adjacent_pool = TRUE, apply_adjacent_pool_to_responsibilities = FALSE)
@@ -128,7 +134,7 @@ CONFIG_VERSION <- list(
   # whose difference from v1 is purely template CONTENT (items dropped/
   # reworded) rather than a scoring-behavior toggle - nothing else in this
   # script needs to know or care which kind of version this is.
-  sim_config_overrides = list(),
+  sim_config_overrides = list(use_adjacent_pool = TRUE),
   
   # Which main-corpus vacancy_numbers to score under the candidate template.
   # Leave empty (character(0)) to score the WHOLE main corpus - expensive,

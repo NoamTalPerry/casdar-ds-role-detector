@@ -17,11 +17,11 @@ This work was funded by the CaSDaR (Careers and Skills for Data-driven Research)
 
 ## What this repository contains
 
-This repository is **code only**. It does not include:
+This repository contains the pipeline's **code** (`Scripts/`) and the **earlier master template versions** tested during the template's development (`templates/`). It does not include:
 - job advertisement PDFs or extracted text,
 - the underlying HR/recruitment data used to enrich extracted records,
 - any scored output (similarity scores, coverage summaries, threshold-analysis results), or
-- the master template of data-steward criteria itself (see [Master template](#master-template-data-deposit) below).
+- the current master template of data-steward criteria, which is deposited separately (see [Master template](#master-template-data-deposit) below).
 
 The purpose of this repository is to promote transparency and reusability of this project. 
 Every script's own header comment describes exactly what inputs it expects and what it does and doesn't touch — check the script before running it. Each output is described within the script.
@@ -108,6 +108,8 @@ The master template of data-steward responsibilities and skills that `similarity
 
 The deposited file follows the format `similarity_scoring.R` expects (see `parse_master_template()`), so it can be used directly as `Data/master_template.txt`.
 
+The earlier versions tested during the template's development are in [`templates/`](templates/), named after the `run_master_template_version.R` runs that used them. Its README maps each run to its template file and scoring settings, and describes what changes between versions.
+
 ## Development notes
 
 Portions of this codebase — including code structure, documentation, and the cleanup applied for this public release — were drafted with the assistance of Claude Sonnet 5 (Anthropic) between July and August 2026, and extended with the assistance of Claude Sonnet 5.5 (Anthropic) between October and November 2026. All code was reviewed, tested, and verified by the author, who takes full responsibility for its correctness and behaviour.
@@ -116,6 +118,7 @@ Portions of this codebase — including code structure, documentation, and the c
 
 - **Code** (all `.R` files in this repository): [MIT License](LICENSE)
 - **Master template and other research-instrument/data deposits**: released separately under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+- **Earlier master template versions** (`templates/`): [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), as described in that folder's README
 
 ## Citation
 
