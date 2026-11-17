@@ -36,6 +36,18 @@ Settings are `similarity_scoring.R` `CONFIG` options, set through `run_master_te
 - **`v6_adj_incorporated.txt`**: `v1_base` with the 10 items from `v3_adjrole`'s ADJACENT_ROLE pool added to the essential skills, i.e. scored as core criteria.
 - **Master template v5 (Apollo)**: 7 of those 10 items are essential skills. The ADJACENT_ROLE pool holds the other 3 plus 4 items moved out of the core lists (one essential skill on communicating technical concepts to non-technical audiences, and three desirable skills: source-code hosting, cloud platforms and wiki platforms).
 
+## Using these files
+
+The scripts' paths are relative to `Scripts/`, so a file here can be used where it is, without copying it into `Data/`. `run_master_template_version.R`'s defaults already reproduce run `v3_adjrole` this way:
+
+```r
+version_name            = "v3_adjrole",
+candidate_template_path = file.path("..", "templates", "v3_adjrole.txt"),
+sim_config_overrides    = list(use_adjacent_pool = TRUE),
+```
+
+For any other run, take the file and settings from the table above. `Data/master_template.txt`, which `similarity_scoring.R` reads by default, is where the current version from Apollo goes.
+
 The format is the one `similarity_scoring.R` expects (see `parse_master_template()`); item numbers are cosmetic. Item IDs differ between versions, so compare items across versions by their text.
 
 ## License
