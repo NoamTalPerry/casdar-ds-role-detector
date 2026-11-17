@@ -78,7 +78,7 @@ suppressPackageStartupMessages({
 # ------------------------------------------------------------------------------
 CONFIG <- list(
   # --- Validation mode ------------------------------------------------------------
-  # Set TRUE to score the validation corpus (curated non-Cambridge job ads
+  # Set TRUE to score the validation corpus (curated external job ads, outside the main corpus,
   # used for threshold-setting/sanity-checking) instead of the main study
   # corpus. When TRUE, EVERY input/output path below is automatically
   # swapped for its validation_* counterpart (see resolve_paths_for_mode_similarity_scoring())

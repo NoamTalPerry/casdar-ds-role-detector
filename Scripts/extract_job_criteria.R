@@ -116,7 +116,7 @@ CONFIG <- list(
   # --- Page-trimming (cost reduction) ---------------------------------------
   # Most of these ads are 12-16 pages, but responsibilities/skills content is
   # only ever within the first few pages, followed by boilerplate (pensions,
-  # "living in Cambridge", equality statements, etc.). Sending the whole PDF
+  # local-area information, equality statements, etc.). Sending the whole PDF
   # as input tokens is the main cost driver, so we keep only pages that look
   # relevant, plus a small buffer, instead of sending everything.
   #
