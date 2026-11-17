@@ -51,14 +51,14 @@ CONFIG <- list(
   coverage_inputs = list(
     validation_positive = file.path("..", "Validation_Output",
                                     "validation_item_coverage_summary.csv"),   # e.g. "../Validation_Output/validation_item_coverage_summary.csv"
-    cambridge_ds         = file.path("..", "Output",
-                                     "item_coverage_summary_cambridge_ds.csv"),   # e.g. "../Output/item_coverage_summary_cambridge_DS.csv"
-    cambridge_partial    = file.path("..", "Output",
-                                     "item_coverage_summary_cambridge_partial.csv"),   # e.g. "../Output/item_coverage_summary_cambridge_partialDS.csv"
-    cambridge_nods       = file.path("..", "Output",
-                                     "item_coverage_summary_cambridge_nods.csv")    # e.g. "../Output/item_coverage_summary_cambridge_NoDS.csv"
+    main_ds         = file.path("..", "Output",
+                                "item_coverage_summary_main_ds.csv"),
+    main_partial    = file.path("..", "Output",
+                                "item_coverage_summary_main_partial.csv"),
+    main_nods       = file.path("..", "Output",
+                                "item_coverage_summary_main_nods.csv")
   ),
-
+  
   # Which columns to carry through from each input, beyond the join keys
   # (section, master_item_id, master_item_text). mean_similarity is the
   # primary comparison metric; n_vacancies_compared lets you see how much
@@ -66,23 +66,23 @@ CONFIG <- list(
   # vacancies is a different kind of finding than one backed by 20).
   # sd_similarity is needed to turn discrimination_gap into a standard
   # error (see compute_gap_uncertainty() below) - it's already computed by
-  # analyze_item_coverage.R's summarize_master_item() for every input file,
-  # it just wasn't being carried through here before. Remove it from this
+  # analyze_item_coverage.R's summarize_master_item() for every input file.
+  # Remove it from this
   # list to fall back to raw-gap-only output (discrimination_gap_se/_z are
   # then skipped, with a log note, rather than erroring).
   carry_columns = c("mean_similarity", "n_vacancies_compared", "match_rate_at_0.6", "sd_similarity"),
-
+  
   # Which two group names (must match coverage_inputs' names) to compute
   # the primary discrimination gap from: gap = mean_similarity[positive_group]
   # - mean_similarity[negative_group]. Output is sorted by this gap
   # ascending (worst/most-concerning discriminators first, matching
   # analyze_item_coverage.R's own "worst first" convention).
-  primary_positive_group = "cambridge_ds",
-  primary_negative_group = "cambridge_nods",
-
+  primary_positive_group = "main_ds",
+  primary_negative_group = "main_nods",
+  
   output_path = file.path("..", "Output", "item_coverage_triangulated.csv"),
   plot_output_path = file.path("..", "Output", "item_coverage_triangulated_plot.png"),
-
+  
   # Which MASTER TEMPLATE VERSION produced the inputs being triangulated
   # here (e.g. "v2_adjacent_role") - appended to output_path/plot_output_path
   # via apply_version_suffix(), the same mechanism/semantics used
@@ -91,7 +91,7 @@ CONFIG <- list(
   # automatically by that wrapper; NULL (no suffix) for a plain standalone
   # run.
   version_suffix = NULL,
-
+  
   log_to_file = TRUE,
   log_dir     = file.path("..", "Output", "logs")
 )
@@ -187,19 +187,19 @@ compute_gap_uncertainty <- function(merged, config) {
     merged$discrimination_gap_z  <- NA_real_
     return(merged)
   }
-
+  
   sd_pos <- merged[[sprintf("sd_similarity__%s", pos)]]
   sd_neg <- merged[[sprintf("sd_similarity__%s", neg)]]
   n_pos  <- merged[[sprintf("n_vacancies_compared__%s", pos)]]
   n_neg  <- merged[[sprintf("n_vacancies_compared__%s", neg)]]
-
+  
   # NA propagates naturally here (e.g. an item with n_vacancies_compared <= 1
   # in one group has NA sd_similarity coming in) - an item with an unusable
   # SE surfaces as NA in the output, never as a misleadingly precise number.
   se <- sqrt((sd_pos^2 / n_pos) + (sd_neg^2 / n_neg))
   merged$discrimination_gap_se <- se
   merged$discrimination_gap_z  <- ifelse(!is.na(se) & se > 0, merged$discrimination_gap / se, NA_real_)
-
+  
   n_unusable <- sum(is.na(se))
   if (n_unusable > 0) {
     log_warn(sprintf(
@@ -207,7 +207,7 @@ compute_gap_uncertainty <- function(merged, config) {
       n_unusable
     ))
   }
-
+  
   low_z <- merged[!is.na(merged$discrimination_gap_z) & abs(merged$discrimination_gap_z) < 1,
                   c("section", "master_item_id", "discrimination_gap", "discrimination_gap_se", "discrimination_gap_z"), drop = FALSE]
   if (nrow(low_z) > 0) {
@@ -217,7 +217,7 @@ compute_gap_uncertainty <- function(merged, config) {
     ))
     print(low_z[order(low_z$discrimination_gap_z), ])
   }
-
+  
   merged
 }
 
@@ -228,12 +228,12 @@ main_triangulate_item_coverage <- function(config) {
   .log_con <<- setup_log_file(config)
   on.exit(if (!is.null(.log_con)) close(.log_con), add = TRUE)
   log_msg(sprintf("=== triangulate_item_coverage.R run started: %s ===", Sys.time()))
-
+  
   groups <- names(config$coverage_inputs)
   if (length(groups) < 2) stop("coverage_inputs needs at least 2 entries to triangulate anything.")
-
+  
   tables <- lapply(groups, function(g) load_one_summary(g, config$coverage_inputs[[g]], config$carry_columns))
-
+  
   # Join everything on (section, master_item_id, master_item_text). Using a
   # full outer join throughout, so a master item present in one group's
   # template but missing from another's output (shouldn't normally happen -
@@ -243,7 +243,7 @@ main_triangulate_item_coverage <- function(config) {
   for (i in seq(2, length(tables))) {
     merged <- merge(merged, tables[[i]], by = c("section", "master_item_id", "master_item_text"), all = TRUE)
   }
-
+  
   n_incomplete <- sum(!stats::complete.cases(merged))
   if (n_incomplete > 0) {
     log_warn(sprintf(
@@ -251,7 +251,7 @@ main_triangulate_item_coverage <- function(config) {
       n_incomplete, nrow(merged)
     ))
   }
-
+  
   # --- Primary discrimination gap ---------------------------------------------
   pos_col <- paste0("mean_similarity__", config$primary_positive_group)
   neg_col <- paste0("mean_similarity__", config$primary_negative_group)
@@ -262,17 +262,17 @@ main_triangulate_item_coverage <- function(config) {
     ))
   }
   merged$discrimination_gap <- merged[[pos_col]] - merged[[neg_col]]
-
+  
   # --- Uncertainty around that gap (SE / z) - see compute_gap_uncertainty() --
   merged <- compute_gap_uncertainty(merged, config)
-
+  
   # Worst (smallest/most negative gap) first - the most actionable ordering,
   # same convention as analyze_item_coverage.R's own sort. Deliberately still
   # sorted by the RAW gap, not by z - a small, precisely-estimated gap and a
   # small, noisy one both belong near the top of this ordering; z is there
   # alongside it so you can tell the two apart, not to replace the sort.
   merged <- merged[order(merged$discrimination_gap, na.last = TRUE), ]
-
+  
   output_path <- apply_version_suffix(config$output_path, config$version_suffix)
   dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
   
@@ -281,8 +281,8 @@ main_triangulate_item_coverage <- function(config) {
   #                                                  (join key across groups)
   #   <carry_column>__<group_name>  - one column per (CONFIG$carry_columns x
   #                                  CONFIG$coverage_inputs) combination, e.g.
-  #                                  mean_similarity__cambridge_ds,
-  #                                  n_vacancies_compared__cambridge_nods -
+  #                                  mean_similarity__main_ds,
+  #                                  n_vacancies_compared__main_nods -
   #                                  see analyze_item_coverage.R's own column
   #                                  glossary for what each carried metric
   #                                  means within one group
@@ -301,7 +301,7 @@ main_triangulate_item_coverage <- function(config) {
   #                                        compute_gap_uncertainty()'s header
   utils::write.csv(merged, output_path, row.names = FALSE)
   log_msg(sprintf("Wrote %d-row triangulated table to %s", nrow(merged), output_path))
-
+  
   report_cols <- c("section", "master_item_id", "discrimination_gap", "discrimination_gap_se", "discrimination_gap_z")
   worst <- utils::head(merged[!is.na(merged$discrimination_gap), report_cols], 5)
   log_msg("Weakest discriminators (smallest DS-vs-No-DS gap):")
@@ -309,7 +309,7 @@ main_triangulate_item_coverage <- function(config) {
   best <- utils::tail(merged[!is.na(merged$discrimination_gap), report_cols], 5)
   log_msg("Strongest discriminators (largest DS-vs-No-DS gap):")
   print(best)
-
+  
   # --- Optional plot: grouped bars, one cluster per master item --------------
   if (!is.null(config$plot_output_path)) {
     tryCatch({
@@ -337,7 +337,7 @@ main_triangulate_item_coverage <- function(config) {
       }
     }, error = function(e) log_warn(sprintf("Could not save plot (%s) - continuing without it.", conditionMessage(e))))
   }
-
+  
   log_msg("Done.")
   invisible(merged)
 }
