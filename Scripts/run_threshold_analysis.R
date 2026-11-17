@@ -8,7 +8,8 @@
 #          grant UKRI739)
 # License: MIT (see LICENSE)
 # Note:    drafted with the assistance of Claude Sonnet 5 (Anthropic),
-#          Jul-Aug 2026; reviewed and verified by the author.
+#          Jul-Aug 2026, and extended with Claude Sonnet 5.5 (Anthropic),
+#          Oct-Nov 2026; reviewed and verified by the author.
 #
 # Purpose:
 #   Build the ROC and precision-recall picture needed to pick an operating
@@ -110,13 +111,7 @@ CONFIG <- list(
   # crosswalk, the completed pass-1 blind file, and the frozen input copies.
   # e.g. file.path("..", "Output", "sampling_snapshots", "hard_negative_sample_2026-01-15")
   #
-  # NOTE: the path below omits an "Output" segment that other scripts in
-  # this pipeline include in their own sampling_snapshots paths (e.g.
-  # file.path("..", "Output", "sampling_snapshots", ...)). Worth
-  # double-checking against your own directory layout before running -
-  # left as-is here rather than silently "corrected", since your own
-  # on-disk structure should decide the right answer, not a guess.
-  snapshot_dir = file.path("..", "sampling_snapshots", "hard_negative_sample_EXAMPLE_DATE"),
+  snapshot_dir = file.path("..", "Output", "sampling_snapshots", "hard_negative_sample_EXAMPLE_DATE"),
   
   
   # The CURRENT (live) positive validation set - NOT inside the snapshot
@@ -126,6 +121,23 @@ CONFIG <- list(
   
   crosswalk_filename = "sample_key_CROSSWALK_do_not_open_until_review_complete.csv",
   pass1_blind_glob    = "review_blind_pass1_*.csv",
+  
+  # WHICH LABELS feed the analysis (the bands/weights never depend on this):
+  #   "final" (default) = the one adjudicated label per review_id written by
+  #       build_final_labels() in export_reliability_recheck.R (pass 1, with
+  #       pass-2 agreements and the adjudicator's pass-3 rulings resolved;
+  #       three-way splits go to the adjudicator - see three_way_rule_met()
+  #       there). Read from final_labels_glob in
+  #       snapshot_dir, column final_label_column.
+  #   "pass1" = the original single-reviewer pass-1 labels, i.e. the
+  #       PRE-adjudication analysis. Use this if there was no second pass /
+  #       adjudication, or to see how much adjudication moved the thresholds.
+  # Both write the same output filenames, so give each run its own
+  # version_suffix (e.g. "pass1_labels" / "final_labels") or move the previous
+  # output_dir aside first, otherwise the second run overwrites the first.
+  label_source      = "final",
+  final_labels_glob  = "final_labels_*.csv",
+  final_label_column  = "label_final",
   vacancy_status_snapshot_filename    = "vacancy_status_snapshot.csv",
   similarity_scores_snapshot_filename  = "similarity_scores_snapshot.csv",
   validation_scores_snapshot_filename   = "validation_similarity_scores_snapshot.csv",
@@ -221,6 +233,8 @@ find_one_file <- function(dir, glob_pattern, label) {
 }
 
 sanitize_name <- function(x) gsub("[^A-Za-z0-9_-]", "_", x)
+
+`%||%` <- function(a, b) if (is.null(a)) b else a
 
 # Same append-before-extension behavior duplicated identically across every
 # script in the run_master_template_version.R chain (analyze_item_coverage.R,
@@ -333,8 +347,10 @@ verify_against_manifest <- function(config, recomputed) {
 }
 
 # ==============================================================================
-# Step 2: Load the labelled main-corpus sample (crosswalk + blind pass1, joined
-# on review_id) and attach the inverse-probability weight per band. Does NOT
+# Step 2: Load the labelled main-corpus sample (crosswalk + labels, joined on
+# review_id; labels come from CONFIG$label_source - the adjudicated final file
+# by default, or the original pass-1 file) and attach the inverse-probability
+# weight per band. Does NOT
 # attach a score here - that happens per score_spec in Step 4, since this
 # base sample is reused across every spec.
 # ==============================================================================
@@ -343,31 +359,61 @@ load_labeled_sample_base <- function(config, population) {
   if (!file.exists(crosswalk_path)) stop(sprintf("Crosswalk not found: %s", crosswalk_path))
   crosswalk <- utils::read.csv(crosswalk_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
   
-  pass1_path <- find_one_file(config$snapshot_dir, config$pass1_blind_glob, "pass-1 blind review file")
-  log_msg(sprintf("Using pass-1 file: %s", pass1_path))
-  pass1 <- utils::read.csv(pass1_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
+  label_source <- config$label_source %||% "final"
+  if (identical(label_source, "pass1")) {
+    labels_path <- find_one_file(config$snapshot_dir, config$pass1_blind_glob, "pass-1 blind review file")
+    log_msg(sprintf("Label source = pass1 (PRE-adjudication). Using pass-1 file: %s", labels_path))
+    lab <- utils::read.csv(labels_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
+    label_col <- "label"
+  } else if (identical(label_source, "final")) {
+    labels_path <- find_one_file(config$snapshot_dir, config$final_labels_glob, "final labels file (from build_final_labels())")
+    log_msg(sprintf("Label source = final (adjudicated). Using final labels file: %s", labels_path))
+    lab <- utils::read.csv(labels_path, stringsAsFactors = FALSE, colClasses = "character", na.strings = character(0))
+    label_col <- config$final_label_column
+  } else {
+    stop(sprintf("CONFIG$label_source must be 'final' or 'pass1', got '%s'.", label_source))
+  }
+  if (!all(c("review_id", label_col) %in% names(lab))) {
+    stop(sprintf("Labels file %s must have columns review_id and %s.", labels_path, label_col))
+  }
+  lab$review_id <- trimws(lab$review_id)
+  dup_ids <- unique(lab$review_id[duplicated(lab$review_id)])
+  if (length(dup_ids) > 0) stop(sprintf("Labels file has duplicate review_id(s): %s", paste(dup_ids, collapse = ", ")))
+  lab$label <- lab[[label_col]]
   
-  blank <- !nzchar(trimws(pass1$label))
+  blank <- !nzchar(trimws(lab$label))
   if (any(blank)) {
     stop(sprintf(
-      "%d row(s) in the pass-1 file still have a blank label (%s) - finish labelling before running the threshold analysis.",
-      sum(blank), paste(pass1$review_id[blank], collapse = ", ")
+      "%d row(s) in the labels file still have a blank label (%s) - finish labelling before running the threshold analysis.",
+      sum(blank), paste(lab$review_id[blank], collapse = ", ")
     ))
   }
   valid_labels <- c("No-DS", "Partial DS", "DS")
-  bad <- !(trimws(pass1$label) %in% valid_labels)
+  bad <- !(trimws(lab$label) %in% valid_labels)
   if (any(bad)) {
     stop(sprintf(
       "%d row(s) have a label that isn't exactly one of %s: %s (review_id: %s) - fix these before proceeding, this script won't guess.",
       sum(bad), paste(valid_labels, collapse = "/"),
-      paste(unique(pass1$label[bad]), collapse = ", "),
-      paste(pass1$review_id[bad], collapse = ", ")
+      paste(unique(lab$label[bad]), collapse = ", "),
+      paste(lab$review_id[bad], collapse = ", ")
     ))
   }
   
-  m <- merge(crosswalk, pass1[, c("review_id", "label")], by = "review_id")
+  # Integrity check: if the final file carries vacancy_number/band, they must
+  # agree with the crosswalk, or the labels belong to a different snapshot.
+  if (all(c("vacancy_number", "band") %in% names(lab))) {
+    chk <- merge(crosswalk[, c("review_id", "vacancy_number", "band")], lab[, c("review_id", "vacancy_number", "band")], by = "review_id", suffixes = c("_cw", "_lab"))
+    mismatch <- chk$review_id[chk$vacancy_number_cw != chk$vacancy_number_lab | chk$band_cw != chk$band_lab]
+    if (length(mismatch) > 0) {
+      stop(sprintf("vacancy_number/band in the labels file disagree with the crosswalk for review_id(s): %s - wrong snapshot?", paste(mismatch, collapse = ", ")))
+    }
+  }
+  
+  # Optional audit columns carried through to the wide export when present.
+  extra_cols <- intersect(c("label_pass1", "label_source"), names(lab))
+  m <- merge(crosswalk, lab[, c("review_id", "label", extra_cols)], by = "review_id")
   if (nrow(m) != nrow(crosswalk)) {
-    log_warn(sprintf("Crosswalk has %d rows but only %d matched a labelled pass-1 row - check the pass-1 file is the right one for this crosswalk.", nrow(crosswalk), nrow(m)))
+    log_warn(sprintf("Crosswalk has %d rows but only %d matched a labelled pass-1 row - check the labels file is the right one for this crosswalk.", nrow(crosswalk), nrow(m)))
   }
   
   m$score_document_at_draw_time <- as.numeric(m$score_at_draw_time)
@@ -380,6 +426,12 @@ load_labeled_sample_base <- function(config, population) {
   print(data.frame(band = bands, population = as.numeric(population[bands]), drawn = as.numeric(drawn_n[bands]), weight = weight_lookup[bands]))
   log_msg("Raw (unweighted) label counts by band - small-n bands here mean a wide-uncertainty weighted estimate for that stratum:")
   print(table(m$band, m$label))
+  log_msg("Label counts used in this run:")
+  print(table(factor(m$label, valid_labels)))
+  if ("label_pass1" %in% names(m)) {
+    n_changed <- sum(m$label != m$label_pass1)
+    log_msg(sprintf("%d of %d rows have a label that differs from the pass-1 label (adjudication / second-rater effect).", n_changed, nrow(m)))
+  }
   
   m
 }
@@ -616,8 +668,12 @@ main_threshold_analysis <- function(config) {
   #   position_category               - HR-derived job category
   #   is_reliability_check              - TRUE if this row was part of the
   #                                      second-pass reliability recheck
-  #   label                                - the reviewer's No-DS/Partial DS/DS
-  #                                        call
+  #   label                                - the No-DS/Partial DS/DS label used
+  #                                        (per CONFIG$label_source)
+  #   label_pass1 / label_source             - only when label_source = "final":
+  #                                          the original pass-1 label, and how
+  #                                          the final label was resolved (see
+  #                                          build_final_labels())
   #   weight                                 - this row's inverse-probability
   #                                           weight (population in its band
   #                                           / number drawn from that band)
@@ -625,7 +681,7 @@ main_threshold_analysis <- function(config) {
   #   CONFIG$score_specs entry)                    that spec's granularity/
   #                                                score_column, for this
   #                                                vacancy
-  wide <- labeled_base[, c("review_id", "vacancy_number", "band", "position_category", "is_reliability_check", "label", "weight")]
+  wide <- labeled_base[, c("review_id", "vacancy_number", "band", "position_category", "is_reliability_check", "label", intersect(c("label_pass1", "label_source"), names(labeled_base)), "weight")]
   for (spec in config$score_specs) {
     sc <- attach_score_for_spec(labeled_base, spec, band_info$raw_scores, alt_scores_cache)[, c("vacancy_number", "score")]
     names(sc)[2] <- paste0("score_", spec$name)
