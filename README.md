@@ -49,10 +49,17 @@ The eleven scripts in this repository form two connected pipelines plus a small 
 
 Each script can also be run standalone; see its own header comment for the exact input/output contract and a fuller design rationale.
 
+### Which parts are designed for reuse
+
+The scripts fall into two groups:
+
+- **General-purpose tools.** `extract_job_criteria.R` (with `run_validation_batch.R`) and `similarity_scoring.R` are written to be reused. Point them at your own job-ad PDFs and your own master template, and they extract criteria and score each ad against it. All project-specific settings live in each script's `CONFIG` block.
+- **Project-specific analysis.** The remaining scripts cover sampling, the reliability and adjudication workflow, threshold analysis, item-coverage analysis and template-version comparison. They implement the validation design used in this project: a score-stratified sample from our own corpus, blind manual labelling with a second pass and adjudication, and an external positive set. They are shared for transparency, so the analysis behind our results can be inspected and reproduced. They should run on comparable inputs, but they assume our file layout, label scheme (DS / Partial DS / No-DS) and sampling design, so you may need to adapt them rather than run them as they are.
+
 ## Requirements
 
 - **R** (developed against a recent R release; no specific minimum version is enforced by the code)
-- R packages: `httr2`, `jsonlite`, `digest`, `yaml` (used across different scripts — each script's header lists exactly what it needs)
+- R packages: `pdftools`, `httr2`, `jsonlite`, `stringr`, `digest`, `yaml` (used across different scripts — each script's header lists exactly what it needs)
 - **[Ollama](https://ollama.com)**, running locally, with the `nomic-embed-text` model pulled (`ollama pull nomic-embed-text`) — used by `similarity_scoring.R` for local embedding
 - An **Anthropic API key**, for `extract_job_criteria.R`'s PDF-to-text extraction step (set as an environment variable; see that script's header for the exact variable name and handling)
 
@@ -82,7 +89,7 @@ your-project-root/
 2. `Rscript extract_job_criteria.R` — extracts and merges criteria from the main corpus.
 3. `Rscript run_validation_batch.R` — does the same for the external validation corpus, fully isolated from step 2.
 4. `Rscript similarity_scoring.R` — score the main corpus (`CONFIG$validation_mode = FALSE`) and, separately, the validation corpus (`CONFIG$validation_mode = TRUE`) against the master template. `run_master_template_version.R` (step 8) can do both of these in one wrapped run if you're testing a template version rather than running the base pipeline.
-5. `Rscript draw_negative_validation_sample.R` → label the resulting blind review file → `Rscript export_reliability_recheck.R` → label pass 2 → call `compare_passes()` for an agreement figure.
+5. `Rscript draw_negative_validation_sample.R` → label the resulting blind review file → `Rscript export_reliability_recheck.R` → label pass 2 → call `compare_passes()` for an agreement figure. If disagreements go to an adjudicator, have them label a pass-3 file covering the disputed rows, then call `compare_passes()` again with it and `build_final_labels()` to produce one final label per vacancy. `run_threshold_analysis.R` uses these final labels by default; set its `label_source = "pass1"` if you did a single labelling pass.
 6. `Rscript run_threshold_analysis.R` — once the labelled sample from step 5 is complete, builds the ROC/precision-recall picture for threshold selection.
 7. `Rscript analyze_item_coverage.R` (or `run_item_coverage_by_label.R` to run it per labelled group) → `Rscript triangulate_item_coverage.R` to compare groups and estimate per-item discrimination.
 8. To test a candidate master template version end-to-end: `Rscript run_master_template_version.R`, then `Rscript compare_master_template_versions.R` once you have two or more completed version runs to compare.
@@ -95,7 +102,7 @@ The master template of data-steward responsibilities and skills that `similarity
 
 ## Development notes
 
-Portions of this codebase — including code structure, documentation, and the cleanup applied for this public release — were drafted with the assistance of Claude Sonnet 5 (Anthropic) between July and August 2026. All code was reviewed, tested, and verified by the author, who takes full responsibility for its correctness and behaviour.
+Portions of this codebase — including code structure, documentation, and the cleanup applied for this public release — were drafted with the assistance of Claude Sonnet 5 (Anthropic) between July and August 2026, and extended with the assistance of Claude Sonnet 5.5 (Anthropic) between October and November 2026. All code was reviewed, tested, and verified by the author, who takes full responsibility for its correctness and behaviour.
 
 ## License
 
