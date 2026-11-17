@@ -2,7 +2,7 @@
 
 This repository contains the analysis code developed for the CaSDaR sub-project *"Evidencing the impact of data stewardship roles using administrative and scientometrics data"*, an R pipeline that identifies and measures data-steward job responsibilities and skills in job-advertisement text using embedding-based similarity scoring against a master template of data-steward criteria.
 
-> **Status:** this repository is being prepared for public release. A citable DOI and a permanent link to the master template deposit will be added once these are minted (see [Citation](#citation) and [Master template](#master-template-data-deposit) below).
+> **Status:** the master template is deposited in Apollo, the University of Cambridge's institutional repository ([doi:10.17863/CAM.133662](https://doi.org/10.17863/CAM.133662); see [Master template](#master-template-data-deposit) below). A citable DOI for this code will be added once a first release is minted (see [Citation](#citation)).
 
 ## About the project
 
@@ -98,7 +98,11 @@ Each script's own header comment is the authoritative reference for its exact CO
 
 ## Master template (data deposit)
 
-The master template of data-steward responsibilities and skills that `similarity_scoring.R` scores job ads against (current version: v5 — 27 responsibilities, 54 skills split into 34 essential and 20 desirable, plus supplementary general and adjacent-role skill pools) is a research instrument in its own right and is deposited separately, not included in this code repository. It will be made available via Cambridge's institutional repository, [Apollo](https://www.repository.cam.ac.uk/) — a link/DOI will be added here once the deposit is complete.
+The master template of data-steward responsibilities and skills that `similarity_scoring.R` scores job ads against (current version: v5 — 27 responsibilities, 47 skills split into 34 essential and 13 desirable, plus supplementary pools of 27 general and 7 adjacent-role items) is a research instrument in its own right and is deposited separately, not included in this code repository. It is available from the University of Cambridge's institutional repository, [Apollo](https://www.repository.cam.ac.uk/), together with a README describing its structure and how it was developed. If you use the template, please cite it as:
+
+> Tal-Perry, N., Clugston, K., & Castle, C. (2026). *CaSDaR Master Template (v5): A coding scheme of responsibilities and skills for identifying data steward roles in job advertisements* [Data set]. Apollo - University of Cambridge Repository. https://doi.org/10.17863/CAM.133662
+
+The deposited file follows the format `similarity_scoring.R` expects (see `parse_master_template()`), so it can be used directly as `Data/master_template.txt`.
 
 ## Development notes
 
