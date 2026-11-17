@@ -8,7 +8,8 @@
 #          grant UKRI739)
 # License: MIT (see LICENSE)
 # Note:    drafted with the assistance of Claude Sonnet 5 (Anthropic),
-#          Jul-Aug 2026; reviewed and verified by the author.
+#          Jul-Aug 2026, and extended with Claude Sonnet 5.5 (Anthropic),
+#          Oct-Nov 2026; reviewed and verified by the author.
 #
 # Purpose:
 #   Scan a folder of job advertisement PDFs, convert each to text, send it to
@@ -56,7 +57,7 @@ CONFIG <- list(
   input_dir  = file.path("..", "PDFs"),       # folder containing the PDFs
   output_dir = file.path("..", "TXTs"),       # dedicated output folder for final .txt criteria files
   extracted_text_dir = file.path("..", "TXTs_extracted"), # debug folder for saved extracted/trimmed text
-
+  
   # --- Model toggle -----------------------------------------------------------
   # Switch between models by changing this one value. Must be a key present in
   # CONFIG$model_request_overrides below - call_claude() looks up model-specific
@@ -69,8 +70,8 @@ CONFIG <- list(
   # "../TXTs_haiku" vs "../TXTs"). skip_existing_output does not know which
   # model produced an existing file, so reusing the same output folder across
   # models will silently mix results and invalidate the comparison.
-  model      = "claude-sonnet-5",             # "claude-sonnet-5" or "claude-haiku-4-5-20251001"
-
+  model      = "claude-sonnet-5",             # "claude-sonnet-5", "claude-sonnet-5-5" or "claude-haiku-4-5-20251001"
+  
   # Per-model request-body overrides, verified against Anthropic's docs
   # (platform.claude.com) as of writing:
   #   - Claude Sonnet 5: adaptive thinking is ON by default and draws from the
@@ -78,6 +79,12 @@ CONFIG <- list(
   #     this pure verbatim-extraction task. Manual extended thinking
   #     (thinking.type="enabled") and any non-default temperature/top_p/top_k
   #     both return an HTTP 400 on this model - never send either.
+  #   - Claude Sonnet 5.5: adaptive thinking is again ON by default, but
+  #     thinking.type="disabled" returns an HTTP 400 on this model. The
+  #     supported way to switch off up-front thinking is
+  #     thinking.type="between_tools" (applies at "high" effort or below,
+  #     which includes the default). This script makes no tool calls, so in
+  #     practice the model answers without a thinking pass.
   #   - Claude Haiku 4.5: the inverse on both counts. Extended thinking here is
   #     OFF by default and opt-in only (no adaptive thinking on this model at
   #     all) - so there is nothing to disable; we simply omit `thinking`
@@ -90,6 +97,9 @@ CONFIG <- list(
   #     Only temperature is set, never top_p alongside it - Claude 4.5 models
   #     reject requests specifying both at once.
   model_request_overrides = list(
+    "claude-sonnet-5-5" = list(
+      thinking = list(type = "between_tools")
+    ),
     "claude-sonnet-5" = list(
       thinking = list(type = "disabled")
     ),
@@ -97,12 +107,12 @@ CONFIG <- list(
       temperature = 0
     )
   ),
-
-  max_tokens = 4096,                          # ceiling for long ads; raised further if truncation occurs
+  
+  max_tokens = 8192,                          # ceiling for long ads; raised further if truncation occurs
   api_url    = "https://api.anthropic.com/v1/messages",
   api_version = "2023-06-01",
   sleep_between_calls = 1,                    # seconds; be polite to the API / avoid rate limits
-
+  
   # --- Page-trimming (cost reduction) ---------------------------------------
   # Most of these ads are 12-16 pages, but responsibilities/skills content is
   # only ever within the first few pages, followed by boilerplate (pensions,
@@ -162,7 +172,7 @@ CONFIG <- list(
   # extra cheap page, so this is a deliberately low-cost safety net.
   trim_fallback_pages  = 5,                    # if NO page matches any keyword, fall back to first N pages
   trim_hard_cap_pages  = 10,                   # safety ceiling on total pages sent, regardless of matches
-
+  
   # --- Diagnostics ------------------------------------------------------------
   save_extracted_text = TRUE,                # if TRUE, save the exact text sent to the LLM (after any
   # page-trimming) to a debug .txt file per PDF, so you can
@@ -171,13 +181,31 @@ CONFIG <- list(
   # text extraction/page-trimming (and saves debug text if
   # save_extracted_text is also TRUE). Useful for iterating
   # on the keyword list without spending any tokens.
-
+  
+  # --- Minimum-text guard (scanned PDFs with a text stub) ------------------
+  # Some scanned PDFs still carry a real text layer for a header, footer,
+  # page number, stamp or watermark. Without this guard, such a file passes
+  # the basic "no extractable text" check, the model receives a few stray
+  # lines, returns empty arrays, and the output is an "(none extracted)"
+  # file that cost an API call and looks like a content-free ad rather than
+  # a scan needing OCR.
+  # If the text sent to the model has fewer than this many NON-WHITESPACE
+  # characters, the PDF is treated exactly like a no-text PDF (logged "No
+  # extractable text in ...", status failed_no_text, no API call). The
+  # extracted text is still saved to the debug folder first (if
+  # save_extracted_text is TRUE) so each rejection can be inspected.
+  # 0 disables the guard.
+  # RECALL NOTE: this is a filter, so it can reject a genuinely very short
+  # ad. 300 characters is about 45 words - deliberately low. Check the
+  # rejections in the run log before raising it.
+  min_text_chars_per_pdf = 300,
+  
   # --- Re-run behaviour ---------------------------------------------------
   skip_existing_output = TRUE,                # if TRUE, skip a PDF entirely (no page extraction, no API
   # call) when its output .txt already exists in output_dir -
   # avoids re-spending tokens on files you've already done.
   # If FALSE, always reprocess and overwrite the existing file.
-
+  
   # --- Targeted single/multi-file mode ---------------------------------------
   # When target_files_only is TRUE, config$input_dir is ignored entirely and
   # ONLY the files listed in target_files are processed - a quick way to
@@ -194,7 +222,7 @@ CONFIG <- list(
   # vacancy_status.csv - not one truncated to a single-PDF "group".
   target_files_only = FALSE,
   target_files       = character(0),          # e.g. c("vacancy_EXAMPLE1_abc123.pdf") or full paths
-
+  
   # --- Retry mode --------------------------------------------------------
   # When retry_mode is TRUE, config$input_dir is ignored as a source of
   # "what to process" and replaced with a targeted set derived from
@@ -212,22 +240,22 @@ CONFIG <- list(
   # succeeded (valid JSON, no error) but came back with BOTH sections empty
   # ("(none extracted)") is treated the same as a real failure and will be
   # retried. See is_empty_extraction() and its use in run_merge_pass(),
-  # which now also classifies group_status this way - a singleton group
-  # whose one posting extracted nothing now correctly shows "failed"
-  # instead of "complete", which is what makes retry_mode actually able to
-  # find these via the status column as requested, rather than them hiding
-  # inside groups that look "complete".
+  # which classifies group_status the same way - a singleton group whose
+  # one posting extracted nothing shows "failed"
+  # instead of "complete", which is what lets retry_mode find these via the
+  # status column rather than them hiding inside groups that look
+  # "complete".
   #
   # Retry candidates ALWAYS force reprocessing regardless of
   # skip_existing_output - the whole point is overwriting a known-bad
-  # existing .txt, per instruction. Every candidate PDF is re-checked
+  # existing .txt. Every candidate PDF is re-checked
   # against CURRENT disk state (not just trusted from vacancy_status.csv,
   # which could be slightly stale), so this is safe to run repeatedly.
   #
   # Mutually exclusive with target_files_only above.
-  retry_mode             = TRUE,
+  retry_mode             = FALSE,
   retry_target_statuses  = c("failed", "partial"),   # edit to e.g. c("failed") to retry only one
-
+  
   # --- Per-run PDF cap (cost control) -----------------------------------
   # A simple throttle, independent of and composable with everything above
   # (retry_mode, target_files_only, filter_by_category, skip_existing_output
@@ -249,14 +277,39 @@ CONFIG <- list(
   # so a group with members beyond the cap is left completely untouched
   # this run (not marked partial/failed just for being unseen; it'll be
   # picked up correctly whenever a later run actually reaches it).
-  enable_pdf_limit  = TRUE,
+  enable_pdf_limit  = FALSE,
   max_pdfs_per_run  = 500,
-
+  
+  # --- API usage logging & token counting ----------------------------------
+  # log_api_usage: append one row per API call (the `usage` block of the
+  # response) to usage_log_path. Ground truth for cost; also shows whether
+  # hidden thinking is being billed (thinking_tokens column) and which ads hit
+  # max_tokens. Logging never stops a run (wrapped in tryCatch).
+  #
+  # count_tokens_preflight: ask Anthropic's free count_tokens endpoint how many
+  # input tokens each prompt will be, using THIS model's tokenizer. With
+  # call_llm = TRUE it is logged next to the billed input tokens (so you can
+  # check the two agree). With call_llm = FALSE it turns a run into a zero-cost
+  # DRY RUN that sizes the input side of the whole sample (set
+  # skip_existing_output = FALSE and raise max_pdfs_per_run for that).
+  # Cache columns are logged but est_cost_usd ignores caching (not used here).
+  # See summarise_api_usage() for turning the log into cost projections.
+  log_api_usage          = TRUE,
+  usage_log_path         = file.path("..", "Output", "logs", "api_usage_log.csv"),
+  count_tokens_preflight = TRUE,
+  # USD per million tokens (standard, non-batch). Batch API is 50% off both.
+  # Re-verify against Anthropic's pricing page before budgeting.
+  price_per_mtok = list(
+    "claude-sonnet-5"           = c(input = 2, output = 10),
+    "claude-sonnet-5-5"         = c(input = 2, output = 10),
+    "claude-haiku-4-5-20251001" = c(input = 1, output = 5)
+  ),
+  
   # --- Logging -------------------------------------------------------------
   log_to_file = TRUE,                         # if TRUE, mirror all console output to a timestamped log
   # file as well (see log_dir)
-  log_dir     = file.path("..", "Output"),    # folder for run logs, sibling to PDFs/TXTs/TXTs_extracted
-
+  log_dir     = file.path("..", "Output", "logs"),    # folder for run logs, sibling to PDFs/TXTs/TXTs_extracted
+  
   # --- Repost grouping & merging (vacancy-level dedup) ----------------------
   # Files sharing the same "vacancy_NNN" number (different UUID/template
   # suffix) can be reposts of the same underlying job - see dedup_union() and
@@ -284,8 +337,8 @@ CONFIG <- list(
   # flagged_for_review = TRUE in the status table. This NEVER blocks or
   # changes the merge itself - it is only a signal for a human to spot-check
   # whether two postings under the same vacancy number are really the same
-  # role (we deliberately do not try to auto-judge that automatically).
-
+  # role (we deliberately do not try to auto-judge that).
+  
   # --- Category-based pre-filtering (HR data) -------------------------------
   # Cost-reduction lever #2, separate from page-trimming above: some job ads
   # are never going to be data-stewardship roles based on their HR "Position
@@ -306,12 +359,11 @@ CONFIG <- list(
   #      user-controlled below rather than hardcoded, since in practice
   #      they've turned out to be large buckets, not rare edge cases:
   #        - category_filter_include_no_server_mapping: no row at all for
-  #          the PDF in ras_fp_files.csv (that mapping currently only runs
-  #          to mid-2025, so PDFs from after that have no row by
-  #          construction - this was ~900 files in one observed dataset).
+  #          the PDF in ras_fp_files.csv (e.g. PDFs newer than the
+  #          mapping export's coverage window have no row by construction).
   #        - category_filter_include_no_recruitment_match: a VACANCY_NUMBER
-  #          exists, but no row for it in the recruitment export (which only
-  #          covers Jan 2022-Dec 2024).
+  #          exists, but no row for it in the recruitment export (e.g. the
+  #          export covers a narrower date range than the PDF folder).
   #      Both default TRUE (include - the original recall-biased default).
   #      Set either to FALSE to exclude that bucket instead once you've
   #      confirmed (via category_filter_log_path) that doing so is an
@@ -323,18 +375,17 @@ CONFIG <- list(
   #      ras_fp_files.csv row (a known single-row case observed during
   #      development) - is NOT separately configurable; it always defaults
   #      to include, since it has so far been a single-row edge case rather
-  #      than a meaningful bucket. Ask if you want that one exposed too.
+  #      than a meaningful bucket.
   #      Only a CONFIRMED category match outside the target list causes
   #      exclusion unconditionally (exclude_other_category).
   #   3. All lookups against the recruitment export's column headers (e.g.
   #      "Position Category", "Job Reference") go through get_hr_column(),
   #      a case-insensitive/whitespace-normalized matcher, rather than a
   #      hardcoded exact string - a real header-casing mismatch ("Position
-  #      category" vs "Position Category") already broke an earlier version
-  #      of this filter, so exact casing can no longer silently matter.
-  #   4. Still recommend spot-checking category_filter_log_path against
-  #      real data before trusting a full/production run - exclusion cases
-  #      specifically haven't been reviewed yet as of this note.
+  #      category" vs "Position Category") is a realistic failure mode for
+  #      HR exports, so exact casing must not silently matter.
+  #   4. Spot-check category_filter_log_path against real data (exclusion
+  #      cases in particular) before trusting a full/production run.
   #
   # Join path - note the two HR files use a DIFFERENT vacancy-numbering
   # system from the "vacancy_NNN" the repost-grouping regex above extracts
@@ -365,7 +416,7 @@ CONFIG <- list(
   category_filter_log_path = file.path("..", "Output", "category_filter_decisions.csv"),
   # Full per-PDF decision log (every file, not just excluded ones) written
   # every run the filter is enabled - see point 1 above.
-
+  
   # --- HR enrichment columns on vacancy_status.csv ---------------------------
   # Independent of filter_by_category above (can be used with or without
   # it) - this toggle loads the SAME two HR files purely to ADD informational
@@ -461,20 +512,20 @@ extract_pdf_text <- function(pdf_path) {
 line_is_heading_match <- function(line, keywords, max_header_chars, prefix_max, suffix_patterns) {
   collapsed <- str_trim(gsub("\\s+", " ", line))
   if (nchar(collapsed) == 0 || nchar(collapsed) > max_header_chars) return(FALSE)
-
+  
   pattern <- paste(keywords, collapse = "|")
   loc <- regexpr(pattern, collapsed, ignore.case = TRUE, perl = TRUE)
   if (loc == -1) return(FALSE)
-
+  
   match_start <- as.integer(loc)
   match_len   <- attr(loc, "match.length")
   match_end   <- match_start + match_len
-
+  
   prefix <- str_trim(substr(collapsed, 1, match_start - 1))
   suffix <- str_trim(substr(collapsed, match_end, nchar(collapsed)))
-
+  
   if (nchar(prefix) > prefix_max) return(FALSE)
-
+  
   # suffix_patterns are pre-anchored (^...$) regexes for allowed short
   # continuations after the keyword (e.g. "(continued)", "& skills").
   # Anything else after the keyword on the line disqualifies the match.
@@ -523,11 +574,11 @@ extract_relevant_pdf_text <- function(pdf_path, config) {
     return(list(text = NA_character_, pages_used = integer(0),
                 total_pages = 0L, matched_by_keyword = FALSE))
   }
-
+  
   n <- length(pages)
   is_match <- vapply(pages, page_has_heading_match, logical(1), config = config)
   always_include <- seq_len(min(config$trim_always_include_pages, n))
-
+  
   if (any(is_match)) {
     match_idx <- which(is_match)
     buffered <- unlist(lapply(match_idx, function(i) {
@@ -542,7 +593,7 @@ extract_relevant_pdf_text <- function(pdf_path, config) {
     selected <- sort(unique(c(seq_len(min(config$trim_fallback_pages, n)), always_include)))
     matched_by_keyword <- FALSE
   }
-
+  
   list(
     text = paste(pages[selected], collapse = "\n\n"),
     pages_used = selected,
@@ -554,12 +605,11 @@ extract_relevant_pdf_text <- function(pdf_path, config) {
 # ------------------------------------------------------------------------------
 # Helper: fallback job-reference scraper, used only when the HR mapping
 # (ras_fp_files.csv) has no usable job reference for a PDF - either no row
-# at all (the ras_fp export has a coverage gap - e.g. it currently only runs
-# to mid-2025 while the PDF folder has postings into late 2025), or a row
-# exists but VACANCY_NUMBER on it is blank. Operates on the ALREADY-
-# EXTRACTED text used for the LLM prompt (job_text) - never re-opens or
-# re-reads the PDF - per instruction, since that text is already in memory
-# for this run at essentially no extra cost.
+# at all (e.g. the mapping export's coverage window ends before the newest
+# PDFs), or a row exists but VACANCY_NUMBER on it is blank. Operates on the
+# ALREADY-EXTRACTED text used for the LLM prompt (job_text) - never re-opens
+# or re-reads the PDF - since that text is already in memory for this run
+# at essentially no extra cost.
 #
 # Finds the FIRST occurrence of "Job Reference:" (case-insensitive,
 # whitespace-tolerant on the colon) and returns whatever follows on that
@@ -568,7 +618,7 @@ extract_relevant_pdf_text <- function(pdf_path, config) {
 # documented in CONFIG$trim_keywords above - so trailing unrelated text
 # rendered on the same line isn't captured. Returns NA if no match is
 # found (including if trim_pages happened to exclude the page the label
-# was on) - the caller leaves the field blank in that case, per instruction.
+# was on) - the caller leaves the field blank in that case.
 # ------------------------------------------------------------------------------
 extract_job_reference_from_text <- function(text) {
   if (is.na(text) || !nzchar(text)) return(NA_character_)
@@ -657,7 +707,7 @@ call_claude <- function(prompt, config, api_key, max_tries = 3) {
       config$model
     ))
   }
-
+  
   body <- c(
     list(
       model      = config$model,
@@ -670,7 +720,7 @@ call_claude <- function(prompt, config, api_key, max_tries = 3) {
     # Sonnet 5, or temperature=0 on Haiku 4.5 - see the CONFIG$model comment
     # for the verified reasoning behind each model's specific overrides
   )
-
+  
   req <- request(config$api_url) |>
     req_headers(
       "x-api-key"         = api_key,
@@ -690,19 +740,20 @@ call_claude <- function(prompt, config, api_key, max_tries = 3) {
     }
     if (attempt < max_tries) Sys.sleep(2 ^ attempt)
   }
-
+  attempts_used <- attempt   # loop variable persists after the loop
+  
   if (inherits(resp, "error")) {
     log_warn(paste("API call failed:", conditionMessage(resp)))
     return(NULL)
   }
-
+  
   body <- resp_body_json(resp, simplifyVector = FALSE)
-
+  
   if (!is.null(body$error)) {
     log_warn(paste("API returned an error:", body$error$message %||% "unknown error"))
     return(NULL)
   }
-
+  
   if (!is.null(body$stop_reason) && body$stop_reason == "max_tokens") {
     log_warn(paste(
       "Response was truncated because max_tokens was reached.",
@@ -711,16 +762,16 @@ call_claude <- function(prompt, config, api_key, max_tries = 3) {
       "still be saved for inspection."
     ))
   }
-
+  
   # Concatenate all text blocks in the response
   text_blocks <- vapply(body$content, function(block) {
     if (!is.null(block$type) && block$type == "text") block$text else ""
   }, character(1))
   raw_text <- paste(text_blocks, collapse = "\n")
-
+  
   # Strip any accidental ```json fences before parsing
   clean_text <- str_replace_all(raw_text, "```json|```", "") |> str_trim()
-
+  
   parsed <- tryCatch(
     jsonlite::fromJSON(clean_text, simplifyVector = TRUE),
     error = function(e) {
@@ -728,13 +779,178 @@ call_claude <- function(prompt, config, api_key, max_tries = 3) {
       NULL
     }
   )
-
+  
   # Return both the parsed result (may be NULL) and the raw text, so the
   # caller can save the raw text for debugging even on failure.
-  list(parsed = parsed, raw_text = raw_text)
+  list(
+    parsed      = parsed,
+    raw_text    = raw_text,
+    usage       = body$usage,
+    stop_reason = body$stop_reason,
+    attempts    = attempts_used,
+    request_id  = tryCatch(resp_header(resp, "request-id"), error = function(e) NULL)
+  )
 }
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
+
+# ------------------------------------------------------------------------------
+# API usage logging, token counting and cost summary. See CONFIG$log_api_usage.
+# ------------------------------------------------------------------------------
+num_or_na <- function(x) if (is.null(x) || length(x) == 0) NA_real_ else as.numeric(x[[1]])
+
+estimate_call_cost_usd <- function(model, input_tokens, output_tokens, config) {
+  price <- config$price_per_mtok[[model]]
+  if (is.null(price) || is.na(input_tokens) || is.na(output_tokens)) return(NA_real_)
+  (input_tokens * price[["input"]] + output_tokens * price[["output"]]) / 1e6
+}
+
+# Free count_tokens call. Only model + messages are sent (not the per-model
+# overrides): input counts do not depend on the thinking/sampling settings, and
+# sending e.g. temperature could be rejected. Returns NA (never stops a run) on
+# any failure. Counts use the tokenizer of config$model - recount when switching.
+count_tokens_claude <- function(prompt, config, api_key) {
+  body <- list(
+    model    = config$model,
+    messages = list(list(role = "user", content = prompt))
+  )
+  resp <- tryCatch(
+    request(paste0(config$api_url, "/count_tokens")) |>
+      req_headers(
+        "x-api-key"         = api_key,
+        "anthropic-version" = config$api_version,
+        "content-type"      = "application/json"
+      ) |>
+      req_body_json(body) |>
+      req_perform(),
+    error = function(e) e
+  )
+  if (inherits(resp, "error")) {
+    log_warn(paste("count_tokens failed:", conditionMessage(resp)))
+    return(NA_real_)
+  }
+  out <- tryCatch(resp_body_json(resp, simplifyVector = FALSE), error = function(e) NULL)
+  num_or_na(out$input_tokens)
+}
+
+# Append one row to the usage log. call_result = NULL for a dry-run row
+# (preflight count only). Never throws.
+append_usage_log <- function(config, pdf_path, job_text, pages_used, total_pages,
+                             call_result = NULL, preflight_tokens = NA_real_) {
+  if (!isTRUE(config$log_api_usage)) return(invisible(NULL))
+  tryCatch({
+    u       <- if (is.null(call_result)) NULL else call_result$usage
+    in_tok  <- num_or_na(u$input_tokens)
+    out_tok <- num_or_na(u$output_tokens)
+    row <- data.frame(
+      timestamp                   = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+      model                       = config$model,
+      pdf_file                    = basename(pdf_path),
+      pages_used                  = as.numeric(pages_used),
+      total_pages                 = as.numeric(total_pages),
+      chars_sent                  = nchar(job_text),
+      preflight_input_tokens      = as.numeric(preflight_tokens),
+      input_tokens                = in_tok,
+      output_tokens               = out_tok,
+      thinking_tokens             = num_or_na(u$output_tokens_details$thinking_tokens),
+      cache_creation_input_tokens = num_or_na(u$cache_creation_input_tokens),
+      cache_read_input_tokens     = num_or_na(u$cache_read_input_tokens),
+      max_tokens                  = as.numeric(config$max_tokens),
+      stop_reason                 = if (is.null(call_result)) NA_character_ else (call_result$stop_reason %||% NA_character_),
+      attempts                    = if (is.null(call_result)) NA_real_ else as.numeric(call_result$attempts %||% NA_real_),
+      request_id                  = if (is.null(call_result)) NA_character_ else (call_result$request_id %||% NA_character_),
+      est_cost_usd                = estimate_call_cost_usd(config$model, in_tok, out_tok, config),
+      stringsAsFactors = FALSE
+    )
+    dir.create(dirname(config$usage_log_path), recursive = TRUE, showWarnings = FALSE)
+    already <- file.exists(config$usage_log_path)
+    utils::write.table(row, config$usage_log_path, sep = ",", row.names = FALSE,
+                       col.names = !already, append = already, qmethod = "double")
+  }, error = function(e) log_warn(paste("Could not write usage log row:", conditionMessage(e))))
+  invisible(NULL)
+}
+
+# Summarise the usage log. Call from an R session after sourcing this script:
+#   summarise_api_usage(CONFIG, n_full_run = 6000)
+# `actual`: per-model stats of billed calls (mean and p90 tokens, truncations,
+#   spend, and - if n_full_run is given - projected cost for that many ads at the
+#   mean and at per-call p90, plus the mean projection at Batch API pricing).
+# `preflight`: per-model stats of count_tokens rows (dry runs), giving the exact
+#   INPUT-side cost of those ads with no tokens spent.
+# Output tokens vary far more than input tokens, so treat the mean projection as
+# the expectation and the p90 one as a budget ceiling. A pilot of fewer than ~30
+# ads is not representative (and ads chosen because they failed never are).
+summarise_api_usage <- function(config, n_full_run = NULL, batch_discount = 0.5, pctl = 0.9) {
+  if (!file.exists(config$usage_log_path)) {
+    stop(sprintf("No usage log at '%s' yet - run an extraction with log_api_usage = TRUE first.",
+                 config$usage_log_path))
+  }
+  d <- utils::read.csv(config$usage_log_path, stringsAsFactors = FALSE)
+  q <- function(x) stats::quantile(x, pctl, names = FALSE, na.rm = TRUE)
+  price_of <- function(m, which) {
+    p <- config$price_per_mtok[[m]]
+    if (is.null(p)) NA_real_ else p[[which]]
+  }
+  
+  actual <- d[!is.na(d$input_tokens), , drop = FALSE]
+  actual_summary <- NULL
+  if (nrow(actual) > 0) {
+    actual_summary <- do.call(rbind, lapply(split(actual, actual$model), function(x) {
+      m <- x$model[1]; pin <- price_of(m, "input"); pout <- price_of(m, "output")
+      data.frame(
+        model         = m,
+        n_calls       = nrow(x),
+        input_mean    = mean(x$input_tokens),
+        input_p90     = q(x$input_tokens),
+        output_mean   = mean(x$output_tokens),
+        output_p90    = q(x$output_tokens),
+        thinking_mean = if (all(is.na(x$thinking_tokens))) NA_real_ else mean(x$thinking_tokens, na.rm = TRUE),
+        n_truncated   = sum(x$stop_reason == "max_tokens", na.rm = TRUE),
+        spent_usd     = sum(x$est_cost_usd, na.rm = TRUE),
+        proj_expected_usd = if (is.null(n_full_run)) NA_real_ else
+          n_full_run * (mean(x$input_tokens) * pin + mean(x$output_tokens) * pout) / 1e6,
+        proj_p90_usd  = if (is.null(n_full_run)) NA_real_ else
+          n_full_run * (q(x$input_tokens) * pin + q(x$output_tokens) * pout) / 1e6,
+        stringsAsFactors = FALSE
+      )
+    }))
+    actual_summary$proj_expected_batch_usd <- actual_summary$proj_expected_usd * (1 - batch_discount)
+    rownames(actual_summary) <- NULL
+    if (any(actual_summary$n_calls < 30)) {
+      log_warn("Fewer than 30 billed calls for at least one model - per-ad estimates are not reliable yet.")
+    }
+    log_msg("Billed usage by model:")
+    print(actual_summary, row.names = FALSE)
+  } else {
+    log_msg("No billed calls in the usage log yet.")
+  }
+  
+  pre <- d[!is.na(d$preflight_input_tokens), , drop = FALSE]
+  pre_summary <- NULL
+  if (nrow(pre) > 0) {
+    pre_summary <- do.call(rbind, lapply(split(pre, pre$model), function(x) {
+      m <- x$model[1]
+      data.frame(
+        model = m, n_rows = nrow(x),
+        preflight_input_total = sum(x$preflight_input_tokens),
+        preflight_input_mean  = mean(x$preflight_input_tokens),
+        preflight_input_p90   = q(x$preflight_input_tokens),
+        input_cost_usd        = sum(x$preflight_input_tokens) * price_of(m, "input") / 1e6,
+        stringsAsFactors = FALSE
+      )
+    }))
+    rownames(pre_summary) <- NULL
+    log_msg("count_tokens preflight (input side only, no tokens spent):")
+    print(pre_summary, row.names = FALSE)
+  }
+  
+  both <- d[!is.na(d$input_tokens) & !is.na(d$preflight_input_tokens), , drop = FALSE]
+  if (nrow(both) > 0) {
+    log_msg(sprintf("count_tokens vs billed input tokens: mean ratio %.3f over %d call(s) (1.000 = exact).",
+                    mean(both$input_tokens / both$preflight_input_tokens), nrow(both)))
+  }
+  invisible(list(actual = actual_summary, preflight = pre_summary))
+}
 
 # ------------------------------------------------------------------------------
 # Helper: write the two bullet-point lists to a .txt file. Also persists
@@ -821,10 +1037,10 @@ get_vacancy_group_key <- function(pdf_path, config) {
 # safe to guess at automatically.
 # ------------------------------------------------------------------------------
 normalize_bullet <- function(x) {
-  x <- gsub("[‘’ʼ]", "'", x)   # curly/modifier single quotes -> straight
-  x <- gsub("[“”]", '"', x)          # curly double quotes -> straight
-  x <- gsub("[–—]", "-", x)          # en/em dash -> hyphen
-  x <- gsub("[   ]", " ", x)    # non-breaking/narrow spaces -> regular space
+  x <- gsub("[\u2018\u2019\u02BC]", "'", x)   # curly/modifier single quotes -> straight
+  x <- gsub("[\u201C\u201D]", '"', x)          # curly double quotes -> straight
+  x <- gsub("[\u2013\u2014]", "-", x)          # en/em dash -> hyphen
+  x <- gsub("[\u00A0\u2007\u202F]", " ", x)    # non-breaking/narrow spaces -> regular space
   x <- gsub("\\s+", " ", x)
   x <- trimws(tolower(x))
   x <- sub("[.;]+$", "", x)                    # drop a single trailing period/semicolon
@@ -903,12 +1119,12 @@ parse_criteria_txt <- function(path) {
     block <- block[block != "(none extracted)"]
     sub("^-\\s", "", block)
   }
-
+  
   header_lines <- lines[seq_len(resp_start[1] - 1)]
-
+  
   ref_line <- grep("^Scraped Job Reference: ", header_lines, value = TRUE)
   scraped_job_ref <- if (length(ref_line) > 0) sub("^Scraped Job Reference: ", "", ref_line[1]) else NA_character_
-
+  
   pages_line <- grep("^Pages Used: ", header_lines, value = TRUE)
   pages_used  <- NA_integer_
   total_pages <- NA_integer_
@@ -919,7 +1135,7 @@ parse_criteria_txt <- function(path) {
       total_pages <- as.integer(m[3])
     }
   }
-
+  
   list(responsibilities = parse_block(resp_lines), skills = parse_block(skill_lines),
        scraped_job_ref = scraped_job_ref, pages_used = pages_used, total_pages = total_pages)
 }
@@ -932,8 +1148,8 @@ parse_criteria_txt <- function(path) {
 # to extract - often a sign that page-trimming excluded the real content
 # page, the source PDF text extraction was garbled, or (rarely) the ad
 # genuinely has neither section. Used by run_merge_pass() to classify such
-# postings as NOT successful for group_status purposes (previously they
-# were indistinguishable from a real, content-bearing success), and by
+# postings as NOT successful for group_status purposes (so they are not
+# mistaken for a real, content-bearing success), and by
 # get_retry_pdf_files() to decide whether a candidate still needs retrying.
 # ------------------------------------------------------------------------------
 is_empty_extraction <- function(parsed) {
@@ -1149,10 +1365,10 @@ dedup_concat_field <- function(values, sep = "; ") {
 build_hr_lookup <- function(config) {
   mapping <- read_hr_csv(config$server_file_mapping_path)
   recruit <- read_hr_csv(config$recruitment_data_path)
-
+  
   server_filename_col <- get_hr_column(mapping, "SERVER_FILENAME", config$server_file_mapping_path)
   vacancy_number_col  <- get_hr_column(mapping, "VACANCY_NUMBER", config$server_file_mapping_path)
-
+  
   job_ref_col            <- get_hr_column(recruit, "Job Reference", config$recruitment_data_path)
   position_ref_col       <- get_hr_column(recruit, "Position Reference", config$recruitment_data_path)
   position_category_col  <- get_hr_column(recruit, "Position Category", config$recruitment_data_path)
@@ -1160,13 +1376,13 @@ build_hr_lookup <- function(config) {
   job_title_col          <- get_hr_column(recruit, "Job Title", config$recruitment_data_path)
   date_opened_col        <- get_hr_column(recruit, "Short Date Advert Published", config$recruitment_data_path)
   date_closed_col        <- get_hr_column(recruit, "Short Date Advert Closed", config$recruitment_data_path)
-
+  
   vacancy_number_key <- trimws(vacancy_number_col)
   job_reference_key  <- trimws(job_ref_col)
   position_category_key <- trimws(position_category_col)
-
+  
   target_categories <- trimws(config$target_position_categories)
-
+  
   # A Job Reference can appear on more than one recruitment-export row (e.g.
   # reposted within the recruitment system itself, independent of PDF-side
   # reposting). Recall-biased for the FILTER decision: a Job Reference
@@ -1176,7 +1392,7 @@ build_hr_lookup <- function(config) {
   valid_idx       <- nzchar(job_reference_key)
   known_job_refs  <- unique(job_reference_key[valid_idx])
   target_job_refs <- unique(job_reference_key[valid_idx & position_category_key %in% target_categories])
-
+  
   decide_one <- function(vn) {
     if (!nzchar(vn)) return("include_no_vacancy_number")  # not user-configurable - see CONFIG comment
     if (!(vn %in% known_job_refs)) {
@@ -1189,7 +1405,7 @@ build_hr_lookup <- function(config) {
     if (vn %in% target_job_refs) return("include_target_category")
     "exclude_other_category"
   }
-
+  
   n <- nrow(mapping)
   per_file <- vector("list", n)
   for (i in seq_len(n)) {
@@ -1222,12 +1438,12 @@ build_hr_lookup <- function(config) {
 lookup_hr_record <- function(pdf_path, hr_lookup) {
   fname <- basename(pdf_path)
   if (!is.null(hr_lookup[[fname]])) return(hr_lookup[[fname]])
-
+  
   fname_noext <- tools::file_path_sans_ext(fname)
   noext_names <- tools::file_path_sans_ext(names(hr_lookup))
   idx <- which(noext_names == fname_noext)
   if (length(idx) >= 1) return(hr_lookup[[idx[1]]])
-
+  
   NULL
 }
 
@@ -1282,7 +1498,7 @@ decision_for_pdf <- function(pdf_path, hr_lookup, config) {
 # ------------------------------------------------------------------------------
 gather_hr_enrichment <- function(member_paths, hr_lookup, file_results) {
   recs <- lapply(member_paths, lookup_hr_record, hr_lookup = hr_lookup)
-
+  
   fallback_job_refs <- mapply(function(path, rec) {
     known_ref <- if (!is.null(rec)) rec$job_ref else NA_character_
     if (!is.null(known_ref) && !is.na(known_ref) && nzchar(trimws(known_ref))) {
@@ -1291,9 +1507,9 @@ gather_hr_enrichment <- function(member_paths, hr_lookup, file_results) {
     scraped <- file_results[[path]]$scraped_job_ref
     if (is.null(scraped)) NA_character_ else scraped
   }, member_paths, recs, SIMPLIFY = TRUE)
-
+  
   recs_present <- recs[!vapply(recs, is.null, logical(1))]
-
+  
   fields <- c("job_ref", "position_ref", "position_category", "position_title",
               "job_title", "date_opened", "date_closed")
   out <- setNames(vector("list", length(fields)), fields)
@@ -1317,24 +1533,18 @@ gather_hr_enrichment <- function(member_paths, hr_lookup, file_results) {
 # parse_criteria_txt()) - NOT from any in-memory state left over from a
 # particular run. It makes no API calls and needs no ANTHROPIC_API_KEY.
 #
-# Why this exists (batch/crash-safety): previously, merging only happened
-# inline at the very end of main(), after the full per-PDF extraction loop
-# finished. If that loop crashed partway through, every PDF successfully
-# processed before the crash still had its .txt file safely written to disk
-# - but the run never reached the merge step, so vacancy_status.csv and the
-# merged .txt files simply wouldn't reflect that work until some LATER run
-# happened to complete all the way through. Nothing was ever silently lost
-# (the source .txt files are the durable record), but it WAS invisible/stale
-# until then, and if you never re-ran the full script, it would stay that
-# way indefinitely.
+# Why this exists (batch/crash-safety): if the per-PDF extraction loop in
+# main() crashes partway through, every PDF processed before the crash
+# still has its .txt file safely on disk, but the run never reaches the
+# merge step - so vacancy_status.csv and the merged .txt files would not
+# reflect that work until a later run completed all the way through.
 #
-# run_merge_pass() fixes this by being independently callable at any time -
-# e.g. `run_merge_pass(CONFIG)` in an R session, with no need to run main()
-# or touch the API at all. Call it right after a crash, between batches, or
-# just periodically during a long run, to get an up-to-date
+# run_merge_pass() avoids this by being independently callable at any time
+# - e.g. `run_merge_pass(CONFIG)` in an R session, with no need to run
+# main() or touch the API at all. Call it right after a crash, between
+# batches, or periodically during a long run, to get an up-to-date
 # vacancy_status.csv reflecting everything completed so far, cheaply. It is
-# also called automatically at the end of a normal main() run (see below),
-# so a single successful run behaves exactly as before.
+# also called automatically at the end of a normal main() run (see below).
 #
 # Why this is SAFE to call repeatedly / from separate batches, without the
 # "does it overwrite or duplicate, and does a run with fewer postings give a
@@ -1358,18 +1568,16 @@ gather_hr_enrichment <- function(member_paths, hr_lookup, file_results) {
 # simply as "not yet processed" for group_status purposes - this pass has no
 # way to distinguish "genuinely failed extraction" from "not attempted yet"
 # from disk state alone, since only successful extractions persist a .txt
-# file. This is not a new gap - group_status already treated "processed" and
-# "skipped_existing" identically before this refactor. Check the run log
+# file. Check the run log
 # from the actual extraction run if you need the specific per-file failure
 # reason for a "partial"/"failed" group.
 #
 # ASSUMPTION: every PDF that has ever been part of a vacancy group remains
-# present in config$input_dir. This was already an implicit assumption
-# before this refactor too (pdf_files has always been a fresh, full folder
-# listing every run, not a persistent record of "files ever seen"). If your
-# batching plan involves moving or deleting PDFs out of the folder once
-# they're processed, flag that - this design would need adapting (e.g.
-# tracking membership via output_dir filenames too, not input_dir alone).
+# present in config$input_dir (pdf_files is a fresh, full folder listing
+# every run, not a persistent record of "files ever seen"). A batching
+# workflow that moves or deletes PDFs out of the folder once they're
+# processed would need this design adapted (e.g. tracking membership via
+# output_dir filenames too, not input_dir alone).
 #
 # If config$filter_by_category is TRUE, that filter is reapplied here too
 # (identically to how it's applied during extraction), BEFORE group
@@ -1406,14 +1614,14 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
   if (!dir.exists(config$input_dir)) {
     stop(sprintf("Input directory '%s' does not exist.", config$input_dir))
   }
-
+  
   pdf_files <- list.files(config$input_dir, pattern = "\\.pdf$",
                           full.names = TRUE, ignore.case = TRUE)
   if (length(pdf_files) == 0) {
     log_msg(paste("No PDF files found in", config$input_dir, "- nothing to merge."))
     return(invisible(NULL))
   }
-
+  
   # HR data is loaded once here (before filtering) if needed for EITHER
   # purpose below: reapplying the category filter to group membership, or
   # enrichment columns further down.
@@ -1422,7 +1630,7 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
     log_msg("Loading HR data...")
     hr_lookup <- build_hr_lookup(config)
   }
-
+  
   # Reapply the SAME category filter used during extraction (see
   # CONFIG$filter_by_category), so a PDF that was deliberately excluded from
   # processing is also excluded from vacancy-group membership here. Without
@@ -1446,11 +1654,11 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
       return(invisible(NULL))
     }
   }
-
+  
   group_info <- lapply(pdf_files, get_vacancy_group_key, config = config)
   names(group_info) <- pdf_files
   group_keys <- vapply(group_info, function(g) g$key, character(1))
-
+  
   # Determine which groups this call actually needs to recompute. See
   # scope_pdf_files in the function comment above - membership (group_keys,
   # just computed) always covers the complete folder regardless; this only
@@ -1468,7 +1676,7 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
   } else {
     target_group_keys <- unique(group_keys)
   }
-
+  
   # Rebuild file_results from disk, but ONLY for members of target groups -
   # this is what actually saves the work for a scoped call (skips
   # parse_criteria_txt() reads, and later get_pdf_metadata_note()'s
@@ -1501,38 +1709,38 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
       )
     }
   }
-
+  
   log_msg("Merging postings within each vacancy group...")
   if (!dir.exists(config$merged_dir)) dir.create(config$merged_dir, recursive = TRUE)
-
+  
   status_rows <- list()
   for (key in target_group_keys) {
     member_paths <- pdf_files[group_keys == key]
     members <- file_results[member_paths]
-
+    
     vacancy_number <- group_info[[member_paths[1]]]$vacancy_number
     vacancy_label  <- if (is.na(vacancy_number)) sub("^UNGROUPED::", "", key) else vacancy_number
-
+    
     resp_lists  <- lapply(members, function(m) m$responsibilities)
     skill_lists <- lapply(members, function(m) m$skills)
     combo_lists <- Map(c, resp_lists, skill_lists)
-
+    
     merged_resp   <- dedup_union(resp_lists)
     merged_skill  <- dedup_union(skill_lists)
     overlap_score <- compute_group_overlap(combo_lists)
-
+    
     n_postings   <- length(member_paths)
     statuses     <- vapply(members, function(m) m$status, character(1))
     n_successful <- sum(statuses == "processed")
     group_status <- if (n_successful == 0) "failed" else if (n_successful < n_postings) "partial" else "complete"
     flagged      <- isTRUE(!is.na(overlap_score) && overlap_score < config$overlap_flag_threshold)
-
+    
     pages_summary <- paste(vapply(members, function(m) {
       if (is.na(m$pages_used) || is.na(m$total_pages)) "NA" else sprintf("%d/%d", m$pages_used, m$total_pages)
     }, character(1)), collapse = "; ")
-
+    
     metadata_note <- paste(vapply(member_paths, get_pdf_metadata_note, character(1)), collapse = " | ")
-
+    
     # HR-enrichment columns (job_ref, position_ref, position_category,
     # position_title, job_title, date_opened, date_closed) - always
     # computed (blank when add_hr_status_columns is off or no HR record
@@ -1545,10 +1753,10 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
       list(job_ref = "", position_ref = "", position_category = "",
            position_title = "", job_title = "", date_opened = "", date_closed = "")
     }
-
+    
     merged_out_path <- file.path(config$merged_dir, sprintf("vacancy_%s_MERGED.txt", vacancy_label))
     write_merged_file(merged_out_path, vacancy_label, member_paths, merged_resp, merged_skill, overlap_score, n_postings, model = config$model)
-
+    
     if (n_postings > 1) {
       log_msg(sprintf(
         "  -> vacancy %s: %d postings, overlap=%s, status=%s%s -> %s",
@@ -1558,11 +1766,11 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
         merged_out_path
       ))
     }
-
+    
     # Output columns (vacancy_status.csv):
-    #   vacancy_number      - grouping key: a real Cambridge vacancy reference
-    #                          number, or a synthesized singleton ID if none
-    #                          was found/matched in the PDF
+    #   vacancy_number      - grouping key: the vacancy number taken from the
+    #                          PDF filename (CONFIG$vacancy_regex), or the
+    #                          file's own base name if none was found
     #   model                - which Claude model produced this row's extraction
     #   source_files          - semicolon-separated basenames of every PDF
     #                            merged into this vacancy group
@@ -1610,7 +1818,7 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
       stringsAsFactors = FALSE
     )
   }
-
+  
   if (length(status_rows) > 0) {
     status_df <- do.call(rbind, status_rows)
     upsert_status_table(config$status_table_path, status_df)
@@ -1634,7 +1842,7 @@ run_merge_pass <- function(config, scope_pdf_files = NULL) {
       ))
     }
   }
-
+  
   invisible(status_rows)
 }
 
@@ -1668,7 +1876,7 @@ get_retry_pdf_files <- function(config) {
     ))
     return(character(0))
   }
-
+  
   status_df <- utils::read.csv(config$status_table_path, stringsAsFactors = FALSE,
                                colClasses = "character", na.strings = character(0))
   required_cols <- c("status", "source_files")
@@ -1679,7 +1887,7 @@ get_retry_pdf_files <- function(config) {
       config$status_table_path, paste(missing_cols, collapse = ", ")
     ))
   }
-
+  
   target_rows <- status_df[status_df$status %in% config$retry_target_statuses, , drop = FALSE]
   if (nrow(target_rows) == 0) {
     log_msg(sprintf(
@@ -1688,13 +1896,13 @@ get_retry_pdf_files <- function(config) {
     ))
     return(character(0))
   }
-
+  
   candidate_basenames <- unique(trimws(unlist(strsplit(target_rows$source_files, ";\\s*"))))
   candidate_basenames <- candidate_basenames[nzchar(candidate_basenames)]
-
+  
   all_pdfs   <- list.files(config$input_dir, pattern = "\\.pdf$", full.names = TRUE, ignore.case = TRUE)
   candidates <- all_pdfs[basename(all_pdfs) %in% candidate_basenames]
-
+  
   missing_from_disk <- setdiff(candidate_basenames, basename(all_pdfs))
   if (length(missing_from_disk) > 0) {
     log_warn(sprintf(
@@ -1703,14 +1911,14 @@ get_retry_pdf_files <- function(config) {
       paste(utils::head(missing_from_disk, 10), collapse = ", ")
     ))
   }
-
+  
   needs_retry <- vapply(candidates, function(pdf_path) {
     base_name <- tools::file_path_sans_ext(basename(pdf_path))
     out_path  <- file.path(config$output_dir, paste0(base_name, ".txt"))
     if (!file.exists(out_path)) return(TRUE)
     is_empty_extraction(parse_criteria_txt(out_path))
   }, logical(1))
-
+  
   retry_files <- candidates[needs_retry]
   log_msg(sprintf(
     paste(
@@ -1721,7 +1929,7 @@ get_retry_pdf_files <- function(config) {
     nrow(target_rows), paste(config$retry_target_statuses, collapse = ", "), length(candidates),
     length(retry_files), length(candidates) - length(retry_files)
   ))
-
+  
   retry_files
 }
 
@@ -1755,7 +1963,7 @@ resolve_extraction_pdf_files <- function(config) {
       "compose with retry_mode's status-driven selection. Use one or the other."
     ))
   }
-
+  
   if (isTRUE(config$target_files_only)) {
     if (length(config$target_files) == 0) {
       log_warn("target_files_only is TRUE but CONFIG$target_files is empty - nothing to process.")
@@ -1772,11 +1980,11 @@ resolve_extraction_pdf_files <- function(config) {
     }
     return(found)
   }
-
+  
   if (isTRUE(config$retry_mode)) {
     return(get_retry_pdf_files(config))
   }
-
+  
   list.files(config$input_dir, pattern = "\\.pdf$", full.names = TRUE, ignore.case = TRUE)
 }
 
@@ -1789,7 +1997,7 @@ main <- function(config) {
     stop("ANTHROPIC_API_KEY environment variable is not set. ",
          "Set it before running this script, e.g. Sys.setenv(ANTHROPIC_API_KEY = '...').")
   }
-
+  
   if (!dir.exists(config$input_dir)) {
     stop(sprintf("Input directory '%s' does not exist.", config$input_dir))
   }
@@ -1801,7 +2009,7 @@ main <- function(config) {
     dir.create(config$extracted_text_dir, recursive = TRUE)
     message(sprintf("Created extracted-text debug directory: %s", config$extracted_text_dir))
   }
-
+  
   # Set up the log file (if enabled) via the module-level .log_con, used by
   # log_msg()/log_warn() everywhere below. Guaranteed to close even on error.
   .log_con <<- setup_log_file(config)
@@ -1811,9 +2019,9 @@ main <- function(config) {
       .log_con <<- NULL
     }, add = TRUE)
   }
-
+  
   pdf_files <- resolve_extraction_pdf_files(config)
-
+  
   if (length(pdf_files) == 0) {
     if (isTRUE(config$retry_mode)) {
       log_msg("retry_mode: nothing to retry - done.")
@@ -1824,9 +2032,9 @@ main <- function(config) {
     }
     return(invisible(NULL))
   }
-
+  
   log_msg(sprintf("Found %d PDF file(s). Starting extraction...", length(pdf_files)))
-
+  
   # --- HR data loading (shared by category filter and status enrichment) ----
   # Both features join the same two files, so load/join once here if either
   # is enabled, and reuse the result below (filtering) and later (merge-loop
@@ -1836,7 +2044,7 @@ main <- function(config) {
     log_msg("Loading HR data (ras_fp_files.csv + recruitment export)...")
     hr_lookup <- build_hr_lookup(config)
   }
-
+  
   # --- Category-based pre-filtering (HR data) --------------------------------
   # See CONFIG$filter_by_category comment for full rationale. This can only
   # ever REMOVE files from pdf_files below (never add), and every decision -
@@ -1859,17 +2067,17 @@ main <- function(config) {
     #   decision   - the category-filter rule outcome for this file
     #   include    - TRUE/FALSE, whether the file proceeds to extraction
     decisions_df <- do.call(rbind, per_file_decisions)
-
+    
     dir.create(dirname(config$category_filter_log_path), recursive = TRUE, showWarnings = FALSE)
     utils::write.csv(decisions_df, config$category_filter_log_path, row.names = FALSE)
     log_msg(sprintf("Full per-PDF category filter decision log written to: %s", config$category_filter_log_path))
-
+    
     summary_counts <- table(decisions_df$decision)
     log_msg("Category filter decision counts:")
     for (nm in names(summary_counts)) {
       log_msg(sprintf("  %s: %d", nm, summary_counts[[nm]]))
     }
-
+    
     n_before   <- length(pdf_files)
     pdf_files  <- pdf_files[decisions_df$include]
     n_excluded <- n_before - length(pdf_files)
@@ -1881,13 +2089,13 @@ main <- function(config) {
       ),
       length(pdf_files), n_before, n_excluded, config$category_filter_log_path
     ))
-
+    
     if (length(pdf_files) == 0) {
       log_msg("No PDFs remain after category filtering - nothing to process.")
       return(invisible(NULL))
     }
   }
-
+  
   # Pre-scan: group files by vacancy number (see "Repost grouping & merging
   # helpers" above). This only determines grouping for the merge step later -
   # it does NOT change how each PDF is individually extracted below.
@@ -1902,12 +2110,12 @@ main <- function(config) {
       length(pdf_files), n_groups, n_multi
     ))
   }
-
+  
   # Tracks the outcome + extracted items for every PDF this run, whether
   # freshly processed, backfilled from disk (skip_existing_output), or
   # failed - used by the merge/status-table step after the loop.
   file_results <- setNames(vector("list", length(pdf_files)), pdf_files)
-
+  
   # n_attempted_this_run: counts only files that reach the API call this
   # run (see CONFIG$enable_pdf_limit - a free skip_existing_output skip
   # never increments this). files_touched_this_run: every PDF the loop
@@ -1916,14 +2124,14 @@ main <- function(config) {
   # stopped us from reaching is correctly left out of both.
   n_attempted_this_run   <- 0
   files_touched_this_run <- character(0)
-
+  
   for (pdf_index in seq_along(pdf_files)) {
     pdf_path  <- pdf_files[pdf_index]
     base_name <- tools::file_path_sans_ext(basename(pdf_path))
     out_path  <- file.path(config$output_dir, paste0(base_name, ".txt"))
-
+    
     will_skip <- file.exists(out_path) && isTRUE(config$skip_existing_output) && !isTRUE(config$retry_mode)
-
+    
     if (!will_skip && isTRUE(config$enable_pdf_limit) && n_attempted_this_run >= config$max_pdfs_per_run) {
       log_msg(sprintf(
         "PDF limit reached (%d processed this run) - stopping here. %d file(s) remain for a future run.",
@@ -1931,22 +2139,20 @@ main <- function(config) {
       ))
       break
     }
-
+    
     files_touched_this_run <- c(files_touched_this_run, pdf_path)
     log_msg(sprintf("Processing file %d of %d: %s", pdf_index, length(pdf_files), basename(pdf_path)))
-
+    
     if (will_skip) {
       log_msg(sprintf(
         "  -> output already exists at %s - skipping (skip_existing_output = TRUE)",
         out_path
       ))
       existing <- parse_criteria_txt(out_path)
-      # pages_used/total_pages/scraped_job_ref are now recovered directly
-      # from the header written by write_criteria_file() (previously these
-      # were hardcoded NA here, a documented known limitation - now closed,
-      # since that header data persists across runs/sessions regardless of
-      # skip_existing_output). Will still be NA for .txt files written
-      # before this header change existed.
+      # pages_used/total_pages/scraped_job_ref are recovered from the
+      # header written by write_criteria_file(), which persists across
+      # runs regardless of skip_existing_output. They are NA for any .txt
+      # file whose header lacks those lines.
       file_results[[pdf_path]] <- list(
         status = "skipped_existing", responsibilities = existing$responsibilities,
         skills = existing$skills, pages_used = existing$pages_used, total_pages = existing$total_pages,
@@ -1961,9 +2167,9 @@ main <- function(config) {
         else "skip_existing_output = FALSE"
       ))
     }
-
+    
     n_attempted_this_run <- n_attempted_this_run + 1
-
+    
     if (isTRUE(config$trim_pages)) {
       extraction <- extract_relevant_pdf_text(pdf_path, config)
       job_text <- extraction$text
@@ -1977,7 +2183,7 @@ main <- function(config) {
     } else {
       job_text <- extract_pdf_text(pdf_path)
     }
-
+    
     if (is.na(job_text) || nchar(str_trim(job_text)) == 0) {
       log_warn(sprintf("No extractable text in %s - skipping (may be a scanned PDF).",
                        basename(pdf_path)))
@@ -1987,7 +2193,7 @@ main <- function(config) {
       )
       next
     }
-
+    
     # Fallback job-reference scrape (see extract_job_reference_from_text()) -
     # computed once here from the already-extracted text and reused in
     # every file_results branch below, since job_text is available for all
@@ -1997,7 +2203,7 @@ main <- function(config) {
     # doing so means turning add_hr_status_columns on LATER doesn't require
     # reprocessing files that were already extracted with it off.
     scraped_job_ref <- extract_job_reference_from_text(job_text)
-
+    
     if (isTRUE(config$save_extracted_text)) {
       debug_path <- file.path(config$extracted_text_dir, paste0(base_name, "_EXTRACTED_TEXT.txt"))
       debug_header <- if (isTRUE(config$trim_pages)) {
@@ -2013,9 +2219,39 @@ main <- function(config) {
       writeLines(paste0(debug_header, job_text), debug_path, useBytes = TRUE)
       log_msg(sprintf("  -> saved extracted text: %s", debug_path))
     }
-
+    
+    # Minimum-text guard - see CONFIG$min_text_chars_per_pdf. Placed AFTER the
+    # debug-text save above so a rejected stub can still be inspected, and
+    # worded to start with "No extractable text in", the same as the basic
+    # no-text check above, so both cases read identically in the run log.
+    n_text_chars <- nchar(gsub("\\s+", "", job_text))
+    if (!is.null(config$min_text_chars_per_pdf) && config$min_text_chars_per_pdf > 0 &&
+        n_text_chars < config$min_text_chars_per_pdf) {
+      log_warn(sprintf(
+        paste("No extractable text in %s - only %d non-space character(s) on the pages used",
+              "(< min_text_chars_per_pdf = %d); likely a scanned PDF with a text header/footer stub.",
+              "Skipping, no API call (needs OCR)."),
+        basename(pdf_path), n_text_chars, config$min_text_chars_per_pdf
+      ))
+      file_results[[pdf_path]] <- list(
+        status = "failed_no_text", responsibilities = character(0), skills = character(0),
+        pages_used = NA_integer_, total_pages = NA_integer_, scraped_job_ref = scraped_job_ref
+      )
+      next
+    }
+    
     if (!isTRUE(config$call_llm)) {
       log_msg("  call_llm is FALSE - skipping API call (text extraction only).")
+      if (isTRUE(config$count_tokens_preflight)) {
+        pf <- count_tokens_claude(build_prompt(job_text), config, api_key)
+        append_usage_log(
+          config, pdf_path, job_text,
+          pages_used = if (isTRUE(config$trim_pages)) length(extraction$pages_used) else NA_integer_,
+          total_pages = if (isTRUE(config$trim_pages)) extraction$total_pages else NA_integer_,
+          call_result = NULL, preflight_tokens = pf
+        )
+        log_msg(sprintf("  count_tokens preflight: %s input token(s)", format(pf)))
+      }
       file_results[[pdf_path]] <- list(
         status = "skipped_call_llm_disabled", responsibilities = character(0), skills = character(0),
         pages_used = if (isTRUE(config$trim_pages)) length(extraction$pages_used) else NA_integer_,
@@ -2024,10 +2260,24 @@ main <- function(config) {
       )
       next
     }
-
+    
     prompt <- build_prompt(job_text)
+    preflight_tokens <- if (isTRUE(config$count_tokens_preflight)) {
+      count_tokens_claude(prompt, config, api_key)
+    } else NA_real_
     call_result <- call_claude(prompt, config, api_key)
-
+    # Logged BEFORE the JSON-parse check below, so truncated / unparseable
+    # responses (which still cost tokens) are recorded too.
+    if (!is.null(call_result)) {
+      append_usage_log(
+        config, pdf_path, job_text,
+        pages_used = if (isTRUE(config$trim_pages)) length(extraction$pages_used) else NA_integer_,
+        total_pages = if (isTRUE(config$trim_pages)) extraction$total_pages else NA_integer_,
+        call_result = call_result, preflight_tokens = preflight_tokens
+      )
+    }
+    
+    
     if (is.null(call_result)) {
       log_warn(sprintf("Skipping %s: API call failed (see warning above).",
                        basename(pdf_path)))
@@ -2039,7 +2289,7 @@ main <- function(config) {
       )
       next
     }
-
+    
     if (is.null(call_result$parsed)) {
       # JSON parsing failed (often truncation). Save the raw model output so
       # nothing is lost, then move on to the next file.
@@ -2057,33 +2307,33 @@ main <- function(config) {
       )
       next
     }
-
+    
     result <- call_result$parsed
     responsibilities <- result$responsibilities %||% character(0)
     skills           <- result$skills %||% character(0)
-
+    
     pages_used_this  <- if (isTRUE(config$trim_pages)) length(extraction$pages_used) else NA_integer_
     total_pages_this <- if (isTRUE(config$trim_pages)) extraction$total_pages else NA_integer_
-
+    
     write_criteria_file(out_path, responsibilities, skills, pdf_path, model = config$model,
                         scraped_job_ref = scraped_job_ref, pages_used = pages_used_this,
                         total_pages = total_pages_this)
     log_msg(sprintf("  -> saved: %s", out_path))
-
+    
     file_results[[pdf_path]] <- list(
       status = "processed", responsibilities = responsibilities, skills = skills,
       pages_used = pages_used_this, total_pages = total_pages_this,
       scraped_job_ref = scraped_job_ref
     )
-
+    
     Sys.sleep(config$sleep_between_calls)
   }
-
+  
   log_msg(sprintf(
     "Finished this run's extraction pass: %d file(s) attempted (sent to the API), %d file(s) touched in total (including free skip_existing_output skips) out of %d in scope.",
     n_attempted_this_run, length(files_touched_this_run), length(pdf_files)
   ))
-
+  
   # ----------------------------------------------------------------------------
   # Merge postings within each vacancy group and update the status table.
   # Delegated to run_merge_pass() - a standalone function that re-derives
@@ -2107,7 +2357,7 @@ main <- function(config) {
   } else {
     log_msg("call_llm is FALSE - skipping the merge/status-table pass (nothing meaningful was extracted this run).")
   }
-
+  
   log_msg("Done.")
 }
 
