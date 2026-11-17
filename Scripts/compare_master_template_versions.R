@@ -82,22 +82,22 @@ CONFIG <- list(
     list(version_name = "v4_candidate", version_suffix = NULL,
          label = "Candidate master")
   ),
-
+  
   versions_root = file.path("..", "Output", "master_template_versions"),
-
+  
   # Which version's numbers every delta_vs_baseline__* column is computed
   # against. Must match one of the version_name values above.
   baseline_version = "v4_candidate",
-
+  
   # --- Step toggles --------------------------------------------------------
   run_auc_comparison   = TRUE,   # Step 1
   run_sweep_comparison = TRUE,   # Step 2
   make_plots = TRUE,             # grouped-bar AUC comparison, one PNG per
-                                  # partial_scheme (exclude / collapse)
-
+  # partial_scheme (exclude / collapse)
+  
   output_dir = file.path("..", "Output", "master_template_comparisons",
                          "v4_candidate_vs_baseline"),
-
+  
   log_to_file = TRUE,
   log_dir     = file.path("..", "Output", "logs")
 )
@@ -207,7 +207,7 @@ run_auc_comparison <- function(resolved_versions, baseline_label, output_dir) {
   long_df <- do.call(rbind, lapply(resolved_versions, load_auc_summary))
   check_spec_coverage(long_df)
   check_n_consistency(long_df)
-
+  
   # Wide comparison, one AUC column per version - built with an explicit
   # merge loop (not stats::reshape, which is fragile in base R and isn't
   # used elsewhere in this pipeline; triangulate_item_coverage.R uses the
@@ -221,7 +221,7 @@ run_auc_comparison <- function(resolved_versions, baseline_label, output_dir) {
   for (i in seq(2, length(per_version))) {
     wide <- merge(wide, per_version[[i]], by = c("score_spec", "partial_scheme"), all = TRUE)
   }
-
+  
   baseline_col <- paste0("AUC__", baseline_label)
   if (!(baseline_col %in% names(wide))) {
     stop(sprintf("baseline_version's label ('%s') not found among compared versions' labels.", baseline_label))
@@ -232,7 +232,7 @@ run_auc_comparison <- function(resolved_versions, baseline_label, output_dir) {
     wide[[delta_col]] <- wide[[col]] - wide[[baseline_col]]
   }
   wide <- wide[order(wide$score_spec, wide$partial_scheme), ]
-
+  
   # Output columns (auc_comparison_wide.csv), one row per (score_spec,
   # partial_scheme):
   #   score_spec / partial_scheme      - which score definition and
@@ -265,13 +265,13 @@ load_threshold_sweep <- function(rv) {
 # why both are tracked rather than just the AUC.
 summarize_one_group <- function(g) {
   g <- g[order(g$threshold), ]
-
+  
   f1_row <- g[which.max(g$weighted_F1), ]
-
+  
   max_tpr <- max(g$weighted_TPR, na.rm = TRUE)
   full_recall_rows <- g[abs(g$weighted_TPR - max_tpr) < 1e-9, ]
   recall_floor_threshold <- max(full_recall_rows$threshold)
-
+  
   data.frame(
     f1_peak_threshold  = f1_row$threshold,
     f1_peak_value      = f1_row$weighted_F1,
@@ -288,7 +288,7 @@ summarize_one_group <- function(g) {
 run_sweep_comparison <- function(resolved_versions, baseline_label, output_dir) {
   log_msg("--- Step 2: threshold-sweep summary comparison ---")
   sweep_df <- do.call(rbind, lapply(resolved_versions, load_threshold_sweep))
-
+  
   groups <- split(sweep_df, list(sweep_df$score_spec, sweep_df$partial_scheme, sweep_df$version), drop = TRUE)
   summary_rows <- lapply(groups, function(g) {
     s <- summarize_one_group(g)
@@ -300,7 +300,7 @@ run_sweep_comparison <- function(resolved_versions, baseline_label, output_dir) 
   summary_long <- do.call(rbind, summary_rows)
   rownames(summary_long) <- NULL
   summary_long <- summary_long[order(summary_long$score_spec, summary_long$partial_scheme, summary_long$version), ]
-
+  
   # Output columns (sweep_summary_by_version.csv), one row per (score_spec,
   # partial_scheme, version):
   #   score_spec / partial_scheme / version  - which combination this row
@@ -321,7 +321,7 @@ run_sweep_comparison <- function(resolved_versions, baseline_label, output_dir) 
   long_out_path <- file.path(output_dir, "sweep_summary_by_version.csv")
   utils::write.csv(summary_long, long_out_path, row.names = FALSE)
   log_msg(sprintf("Wrote sweep summary (%d rows) to %s", nrow(summary_long), long_out_path))
-
+  
   # Wide comparison, one column per version, for the two numbers most
   # likely to explain an AUC delta (f1_peak_value, recall_floor_threshold),
   # plus f1_peak_threshold for context. Same merge-loop approach as
@@ -341,7 +341,7 @@ run_sweep_comparison <- function(resolved_versions, baseline_label, output_dir) 
     wide_out <- if (is.null(wide_out)) metric_wide else merge(wide_out, metric_wide, by = c("score_spec", "partial_scheme"), all = TRUE)
   }
   wide_out <- wide_out[order(wide_out$score_spec, wide_out$partial_scheme), ]
-
+  
   # Output columns (sweep_key_metrics_wide.csv), one row per (score_spec,
   # partial_scheme):
   #   score_spec / partial_scheme                     - which combination
@@ -369,7 +369,7 @@ generate_auc_comparison_plot <- function(long_df, scheme, output_dir) {
   versions <- unique(d$version)   # preserves CONFIG$versions order
   mat <- matrix(NA_real_, nrow = length(versions), ncol = length(specs), dimnames = list(versions, specs))
   for (i in seq_len(nrow(d))) mat[d$version[i], d$score_spec[i]] <- d$weighted_AUC[i]
-
+  
   path <- file.path(output_dir, sprintf("auc_comparison_%s.png", scheme))
   grDevices::png(path, width = max(900, 120 * length(specs)), height = 700, res = 130)
   op <- graphics::par(mar = c(7, 4, 3, 2))
@@ -393,9 +393,9 @@ main_compare_versions <- function(config) {
   .log_con <<- setup_log_file(config)
   on.exit(if (!is.null(.log_con)) close(.log_con), add = TRUE)
   log_msg(sprintf("=== compare_master_template_versions.R run started: %s ===", Sys.time()))
-
+  
   if (length(config$versions) < 2) stop("CONFIG$versions needs at least 2 entries to compare anything.")
-
+  
   resolved_versions <- lapply(config$versions, resolve_version, versions_root = config$versions_root)
   labels <- vapply(resolved_versions, function(rv) rv$label, character(1))
   if (any(duplicated(labels))) {
@@ -405,19 +405,19 @@ main_compare_versions <- function(config) {
     ))
   }
   log_msg(sprintf("Comparing %d version(s): %s", length(resolved_versions), paste(labels, collapse = ", ")))
-
+  
   version_names <- vapply(resolved_versions, function(rv) rv$version_name, character(1))
   baseline_idx <- which(version_names == config$baseline_version)
   if (length(baseline_idx) == 0) {
     stop(sprintf("baseline_version ('%s') not found among CONFIG$versions.", config$baseline_version))
   }
   baseline_label <- resolved_versions[[baseline_idx[1]]]$label
-
+  
   dir.create(config$output_dir, recursive = TRUE, showWarnings = FALSE)
-
+  
   auc_result   <- NULL
   sweep_result <- NULL
-
+  
   if (isTRUE(config$run_auc_comparison)) {
     auc_result <- run_auc_comparison(resolved_versions, baseline_label, config$output_dir)
     if (isTRUE(config$make_plots)) {
@@ -429,18 +429,17 @@ main_compare_versions <- function(config) {
       }
     }
   }
-
+  
   if (isTRUE(config$run_sweep_comparison)) {
     sweep_result <- run_sweep_comparison(resolved_versions, baseline_label, config$output_dir)
   }
-
-  # --- Not yet built, deliberately: a Step 3 that would join each version's
-  # per-vacancy scored output on vacancy_number and compute per-vacancy
-  # score deltas (the "which specific vacancies moved, and by how much"
-  # view). Natural extension if the Step 1/2 comparison flags something
-  # worth explaining at the per-vacancy level; not built now since it
-  # wasn't needed for this round of comparisons.
-
+  
+  # --- Possible extension (not implemented): a Step 3 that joins each
+  # version's per-vacancy scored output on vacancy_number and computes
+  # per-vacancy score deltas (the "which specific vacancies moved, and by
+  # how much" view) - useful if the Step 1/2 comparison flags something
+  # worth explaining at the per-vacancy level.
+  
   log_msg("Done.")
   invisible(list(auc = auc_result, sweep = sweep_result))
 }
